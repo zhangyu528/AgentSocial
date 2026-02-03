@@ -1,0 +1,8 @@
+dist/
+node_modules/
+config.json
+.state.json
+*.log
+*.err
+.DS_Store
+.env

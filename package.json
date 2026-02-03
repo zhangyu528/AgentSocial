@@ -1,0 +1,23 @@
+{
+  "name": "agentsocial",
+  "version": "1.0.0",
+  "description": "Giving AI Agents a social identity: Unified bridge for notifications and commands via Feishu, DingTalk, and more.",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "scripts": {
+    "start": "ts-node src/main.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.58.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
