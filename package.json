@@ -1,15 +1,34 @@
 {
-  "name": "agentsocial",
+  "name": "agent-social",
   "version": "1.0.0",
   "description": "Giving AI Agents a social identity: Unified bridge for notifications and commands via Feishu, DingTalk, and more.",
-  "main": "dist/main.js",
-  "types": "dist/main.d.ts",
-  "scripts": {
-    "start": "ts-node src/main.ts",
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "main": "dist/src/main.js",
+  "bin": {
+    "agent-social": "dist/src/main.js"
   },
-  "keywords": [],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "dev:reg": "ts-node src/main.ts register",
+    "dev:run": "ts-node src/main.ts run",
+    "start": "node dist/src/main.js",
+    "lint": "tsc --noEmit",
+    "build": "npm run lint && tsc",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "feishu",
+    "lark",
+    "bot",
+    "gemini",
+    "agent"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -18,6 +37,7 @@
   "devDependencies": {
     "@types/node": "^25.2.0",
     "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
   }
 }

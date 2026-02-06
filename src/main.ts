@@ -1,164 +1,158 @@
+#!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { FeishuAPI } from './feishu-api';
+import { ExecutorFactory } from './core/executor';
+import { FeishuBot } from './platforms/feishu-bot';
+import { BaseBot } from './platforms/base-bot';
+import * as readline from 'readline';
+import { execSync } from 'child_process';
 
-// ---------------------------------------------------------
-// CONFIGURATION
-// ---------------------------------------------------------
 const rootDir = path.join(__dirname, '..');
-const configPath = path.join(rootDir, 'config.json');
-const statePath = path.join(rootDir, '.state.json');
-const POLL_INTERVAL = 2000;
-const PROJECT_ROOT = path.resolve(rootDir, '../../..');
-
-let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-const api = new FeishuAPI(config.app_id, config.app_secret);
-
-interface ChatState {
-    lastMessageId: string | null;
-    lastMessageIdTime: number;
-    initialized: boolean;
-}
-
-let globalState: { chat_cursors: Record<string, ChatState> } = { chat_cursors: {} };
-let botOpenId: string | null = null;
-
-function loadState() {
-    if (fs.existsSync(statePath)) {
-        try {
-            globalState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-            if (!globalState.chat_cursors) globalState.chat_cursors = {};
-        } catch (e) { }
-    }
-}
-
-function saveState() {
-    fs.writeFileSync(statePath, JSON.stringify(globalState, null, 2));
-}
 
 // ---------------------------------------------------------
-// EXECUTION
+// MAIN RUN FLOW
 // ---------------------------------------------------------
 
-function runGemini(escapedCmd: string, useResume: boolean, callback: (error: any, stdout: string, stderr: string) => void) {
-    const cmd = `gemini --yolo ${useResume ? '--resume latest' : ''} -p "${escapedCmd}"`;
-    console.log(`[Executing] ${cmd}`);
-    exec(cmd, {
-        cwd: PROJECT_ROOT,
-        env: { ...process.env, OTEL_SDK_DISABLED: 'true' },
-        maxBuffer: 1024 * 1024 * 10
-    }, callback);
-}
+async function main() {
+    let configPath = path.join(process.cwd(), 'config.json');
+    if (!fs.existsSync(configPath)) configPath = path.join(rootDir, 'config.json');
 
-async function handleCommand(cmd: string, chatId: string) {
-    console.log(`\n[Command] ${cmd} (Chat ID: ${chatId})`);
-    if (cmd.toLowerCase() === 'ping') {
-        await api.sendMessage(chatId, 'chat_id', "pong! Agent is alive.");
-        return;
+    if (!fs.existsSync(configPath)) {
+        console.error("❌ No config.json found.");
+        console.error("👉 Run 'agent-social register' to get started.");
+        process.exit(1);
     }
 
-    await api.sendMessage(chatId, 'chat_id', `⏳ 正在处理指令: "${cmd}"...`);
-
-    const escapedCmd = cmd.replace(/"/g, '\\"');
-
-    runGemini(escapedCmd, true, (error, stdout, stderr) => {
-        if (error && (stderr.includes("No previous sessions found") || stderr.includes("Error resuming session"))) {
-            console.log("[Retry] Session resume failed, starting new session...");
-            runGemini(escapedCmd, false, (error2, stdout2, stderr2) => {
-                finishCommand(error2, stdout2, stderr2, chatId);
-            });
-        } else {
-            finishCommand(error, stdout, stderr, chatId);
-        }
-    });
-}
-
-function finishCommand(error: any, stdout: string, stderr: string, chatId: string) {
-    let result = error ? `❌ 运行出错:\n${stderr || error.message}` : stdout.trim();
-    if (!result) result = "✅ 执行完毕。";
-    console.log(`[Output] ${result.substring(0, 50)}...`);
-    api.sendMessage(chatId, 'chat_id', result).catch(err => console.error("Send back failed:", err));
-}
-
-// ---------------------------------------------------------
-// MAIN LOOP
-// ---------------------------------------------------------
-
-async function pollChat(chatId: string) {
-    if (!globalState.chat_cursors[chatId]) {
-        globalState.chat_cursors[chatId] = { lastMessageId: null, lastMessageIdTime: 0, initialized: false };
-    }
-    const cs = globalState.chat_cursors[chatId];
-
-    const res = await api.getMessages(chatId, 50);
-    const items = res.data ? res.data.items || [] : [];
-    const sorted = items.sort((a: any, b: any) => parseInt(a.create_time) - parseInt(b.create_time));
-
-    if (!cs.initialized) {
-        if (sorted.length > 0) {
-            const latest = sorted[sorted.length - 1];
-            cs.lastMessageId = latest.message_id;
-            cs.lastMessageIdTime = parseInt(latest.create_time);
-            saveState();
-        }
-        cs.initialized = true;
-        console.log(`[Init] Chat ${chatId} ready.`);
-    } else {
-        for (const msg of sorted) {
-            const msgTime = parseInt(msg.create_time);
-            if (msgTime <= cs.lastMessageIdTime || msg.message_id === cs.lastMessageId) continue;
-            cs.lastMessageId = msg.message_id;
-            cs.lastMessageIdTime = msgTime;
-            saveState();
-
-            if (msg.msg_type !== 'text' || msg.sender.sender_type !== 'user') continue;
-            let content = "";
-            try { content = JSON.parse(msg.body.content).text; } catch (e) { continue; }
-
-            const isMentioned = msg.mentions && msg.mentions.some((m: any) => m.id === botOpenId);
-            if (isMentioned) {
-                let cleaned = content;
-                msg.mentions.forEach((m: any) => cleaned = cleaned.replace(m.key, ''));
-                await handleCommand(cleaned.trim(), chatId);
-            }
-        }
-    }
-}
-
-async function poll() {
+    const PROJECT_ROOT = process.cwd();
+    let rawConfig: any;
     try {
-        if (!botOpenId) {
-            const bot = await api.getBotInfo();
-            botOpenId = bot.open_id;
-        }
-
-        let chatsToPoll: string[] = [];
-        if (config.receive_id) {
-            chatsToPoll = [config.receive_id];
-        } else {
-            const joinedChats = await api.getJoinedChats();
-            chatsToPoll = (joinedChats.data?.items || []).map((c: any) => c.chat_id);
-        }
-
-        for (const chatId of chatsToPoll) {
-            try {
-                await pollChat(chatId);
-            } catch (err: any) {
-                console.error(`[Poll Chat ${chatId} Error] ${err.message}`);
-            }
-        }
-
-    } catch (error: any) {
-        console.error(`[Global Poll Error] ${error.message}`);
+        rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch (e: any) {
+        console.error("❌ Failed to parse config.json:", e.message);
+        process.exit(1);
     }
-    setTimeout(poll, POLL_INTERVAL);
+
+    const appConfigs = Array.isArray(rawConfig) ? rawConfig : (rawConfig.apps || [rawConfig]);
+
+    checkDependencies(appConfigs);
+
+    console.log(`\n================================================`);
+    console.log(`🤖 AgentSocial Multi-Platform Bridge`);
+    console.log(`Loaded ${appConfigs.length} app(s).`);
+    console.log(`================================================\n`);
+
+    const botInstances: BaseBot[] = [];
+
+    for (const config of appConfigs) {
+        // Determine platform (default to feishu)
+        const platform = config.platform || 'feishu';
+        const agentType = config.agent_type || 'gemini';
+        
+        // 1. Create specialized executor
+        const executor = ExecutorFactory.create(agentType, rootDir);
+        
+        // 2. Create specialized bot instance
+        let bot: BaseBot;
+        if (platform === 'feishu') {
+            bot = new FeishuBot(config, executor, PROJECT_ROOT);
+        } else {
+            console.error(`❌ Unsupported platform: ${platform}`);
+            continue;
+        }
+
+        bot.start();
+        botInstances.push(bot);
+    }
+
+    const cleanup = async () => {
+        console.log("\nShutting down AgentSocial...");
+        for (const bot of botInstances) await bot.destroy();
+        process.exit(0);
+    };
+
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
 }
 
-loadState();
-console.log(`\n================================================`);
-console.log(`🤖 AgentSocial (Multi-Platform Link)`);
-console.log(`Root: ${PROJECT_ROOT}`);
-console.log(`Mode: ${config.receive_id ? 'Single-Chat' : 'Multi-Chat Discovery'}`);
-console.log(`================================================\n`);
-poll();
+// ---------------------------------------------------------
+// PRE-FLIGHT CHECK
+// ---------------------------------------------------------
+
+function checkDependencies(appConfigs: any[]) {
+    const agentsToCheck = new Set(appConfigs.map(c => c.agent_type || 'gemini'));
+    let missingAny = false;
+    
+    for (const agent of agentsToCheck) {
+        try {
+            const cmd = agent === 'claude' ? 'claude --version' : 
+                        agent === 'codex' ? 'codex --version' : 'gemini --version';
+            const version = execSync(cmd, { encoding: 'utf8', stdio: 'pipe' }).trim();
+            console.log(`[Check] ${agent} CLI found: ${version.substring(0, 20)}...`);
+        } catch (e) {
+            console.error(`\n❌ Error: Required agent '${agent}' is not installed.`);
+            missingAny = true;
+        }
+    }
+    if (missingAny) process.exit(1);
+}
+
+// ---------------------------------------------------------
+// CLI ARGUMENT HANDLING
+// ---------------------------------------------------------
+const args = process.argv.slice(2);
+
+if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage: agent-social [command]
+
+Commands:
+  register      Register a new App/Agent
+  run           Start the agent service (default)
+`);
+    process.exit(0);
+}
+
+// ... runConfigWizard (省略以节省长度，逻辑保持不变) ...
+async function runConfigWizard(): Promise<any> {
+    const agents = [
+        { id: 'gemini', name: 'Google Gemini CLI', check: 'gemini --version' },
+        { id: 'claude', name: 'Claude Code', check: 'claude --version' },
+        { id: 'codex', name: 'Codex CLI', check: 'codex --version' }
+    ];
+    const installedAgents = agents.filter(a => {
+        try { execSync(a.check, { stdio: 'ignore' }); return true; } catch (e) { return false; }
+    });
+
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const ask = (q: string) => new Promise<string>(r => rl.question(q, r));
+
+    if (installedAgents.length === 0) {
+        console.error("\n❌ No compatible CLI agents detected!");
+        process.exit(1);
+    }
+
+    console.log("\nSelect an agent:");
+    installedAgents.forEach((a, i) => console.log(`  ${i + 1}. ${a.name}`));
+    const answer = await ask("Enter number [1]: ");
+    const agent = installedAgents[parseInt(answer) - 1]?.id || installedAgents[0].id;
+
+    console.log("\n--- Feishu Config ---");
+    const appId = await ask("App ID: ");
+    const appSecret = await ask("App Secret: ");
+    const useSandbox = (await ask("Enable Sandbox? [Y/n]: ")).toLowerCase() !== 'n';
+
+    rl.close();
+    return { "platform": "feishu", "app_id": appId.trim(), "app_secret": appSecret.trim(), "agent_type": agent, "sandbox": useSandbox };
+}
+
+if (args.includes('register')) {
+    (async () => {
+        const targetPath = path.join(process.cwd(), 'config.json');
+        let configArray = fs.existsSync(targetPath) ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : [];
+        configArray.push(await runConfigWizard());
+        fs.writeFileSync(targetPath, JSON.stringify(configArray, null, 2));
+        process.exit(0);
+    })();
+} else {
+    main();
+}

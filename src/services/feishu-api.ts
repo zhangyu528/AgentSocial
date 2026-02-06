@@ -10,7 +10,14 @@ export class FeishuAPI {
         this.client = new lark.Client({
             appId: appId,
             appSecret: appSecret,
-            disableTokenCache: false
+            disableTokenCache: false,
+            logger: {
+                error: () => {},
+                warn: () => {},
+                info: () => {},
+                debug: () => {},
+                trace: () => {}
+            }
         });
     }
 
@@ -19,7 +26,10 @@ export class FeishuAPI {
      */
     async getBotInfo(): Promise<any> {
         try {
-            const res = await this.client.bot.info.get();
+            const res = await this.client.request({
+                method: 'GET',
+                url: '/open-apis/bot/v3/info',
+            });
             return res.bot;
         } catch (error: any) {
             throw new Error(`Failed to get bot info: ${error.message}`);
@@ -43,6 +53,26 @@ export class FeishuAPI {
             });
         } catch (error: any) {
             throw new Error(`Failed to send message: ${error.message}`);
+        }
+    }
+
+    /**
+     * Send an interactive card message
+     */
+    async sendCard(receiveId: string, receiveIdType: string, cardContent: any): Promise<any> {
+        try {
+            return await this.client.im.message.create({
+                params: {
+                    receive_id_type: receiveIdType,
+                },
+                data: {
+                    receive_id: receiveId,
+                    msg_type: 'interactive',
+                    content: JSON.stringify(cardContent),
+                },
+            });
+        } catch (error: any) {
+            throw new Error(`Failed to send card: ${error.message}`);
         }
     }
 
