@@ -1,5 +1,6 @@
 import { IAgentExecutor, ExecutionResult } from '../core/executor';
 import { TaskQueue } from '../core/queue';
+import { Dashboard } from '../ui/dashboard';
 import * as path from 'path';
 
 export abstract class BaseBot {
@@ -8,6 +9,7 @@ export abstract class BaseBot {
     protected projectRoot: string;
     protected executor: IAgentExecutor;
     protected queue: TaskQueue;
+    protected processedMessageIds: Set<string> = new Set();
 
     constructor(config: any, executor: IAgentExecutor, defaultProjectRoot: string) {
         this.config = config;
@@ -20,17 +22,11 @@ export abstract class BaseBot {
     abstract start(): Promise<void>;
     abstract stop(): Promise<void>;
 
-    /**
-     * 清理所有资源
-     */
     async destroy() {
         await this.stop();
         this.executor.dispose();
     }
 
-    /**
-     * Helper to get standard status info
-     */
     protected getStatusInfo() {
         return {
             projectName: path.basename(this.projectRoot),
@@ -39,26 +35,31 @@ export abstract class BaseBot {
         };
     }
 
-    /**
-     * Platform-specific implementation for sending a reply to a command
-     */
     protected abstract sendReply(chatId: string, message: string): Promise<void>;
-
-    /**
-     * Platform-specific implementation for proactive notification (interrupted messages)
-     */
     protected abstract sendProactive(chatId: string, message: string): Promise<void>;
+    protected abstract sendApprovalCard(chatId: string, prompt: string): Promise<void>;
 
-    /**
-     * Central Command Processor
-     * Handles queuing, execution, and real-time interception of [NOTIFY] tags.
-     */
-    protected async handleIncomingCommand(chatId: string, content: string) {
-        // 过滤内部预热指令，不发送任何消息回平台
+    public approve(chatId: string) {
+        this.executor.respond(this.appId, chatId, 'y');
+    }
+
+    public deny(chatId: string) {
+        this.executor.respond(this.appId, chatId, 'n');
+    }
+
+    protected async handleIncomingCommand(chatId: string, content: string, messageId?: string) {
         if (chatId === 'internal-prewarm') return;
 
+        if (messageId) {
+            if (this.processedMessageIds.has(messageId)) return;
+            this.processedMessageIds.add(messageId);
+            if (this.processedMessageIds.size > 1000) {
+                const it = this.processedMessageIds.values();
+                this.processedMessageIds.delete(it.next().value!);
+            }
+        }
+
         const agentName = this.config.agent_type || 'Agent';
-        
         await this.sendReply(chatId, `⏳ [${agentName}] 正在处理: "${content}"...`);
 
         try {
@@ -68,16 +69,17 @@ export abstract class BaseBot {
                 content,
                 this.projectRoot,
                 this.config.sandbox,
-                (data) => this.interceptProactiveMessages(chatId, data)
+                'auto',
+                (data) => this.interceptProactiveMessages(chatId, data),
+                (prompt) => this.sendApprovalCard(chatId, prompt)
             );
 
-            let finalMsg = result.code === 0 ? result.stdout.trim() : `❌ 运行出错:\n${result.stderr || "执行失败"}`;
+            // 过滤 ANSI 转义字符，让发回飞书的文字变干净
+            const cleanOutput = result.stdout.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{4,4}g|(?:\d{1,4}(?:;\d{0,4})*)?[0-9,A-PR-Zcf-nqry=><])/g, '').trim();
+
+            let finalMsg = result.code === 0 ? cleanOutput : `❌ 运行出错:\n${cleanOutput || "执行失败"}`;
             if (!finalMsg) finalMsg = "✅ 执行完毕。";
-            
-            // Handle long messages
-            if (finalMsg.length > 4000) {
-                finalMsg = finalMsg.substring(0, 3900) + "\n\n... (输出过长已截断)";
-            }
+            if (finalMsg.length > 4000) finalMsg = finalMsg.substring(0, 3900) + "\n\n... (输出过长已截断)";
 
             await this.sendReply(chatId, finalMsg);
         } catch (error: any) {
@@ -85,21 +87,13 @@ export abstract class BaseBot {
         }
     }
 
-    /**
-     * Scans stdout for the [NOTIFY] marker and triggers a proactive message
-     */
-    private interceptProactiveMessages(chatId: string, data: string) {
+    protected interceptProactiveMessages(chatId: string, data: string) {
         if (!data.includes('[NOTIFY]')) return;
-
         const lines = data.split('\n');
         for (const line of lines) {
             if (line.includes('[NOTIFY]')) {
                 const msg = line.split('[NOTIFY]')[1].trim();
-                if (msg) {
-                    this.sendProactive(chatId, msg).catch(e => 
-                        console.error(`[${this.appId}] Proactive send failed:`, e.message)
-                    );
-                }
+                if (msg) this.sendProactive(chatId, msg).catch(() => { });
             }
         }
     }

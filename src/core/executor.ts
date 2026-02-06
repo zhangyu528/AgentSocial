@@ -1,6 +1,7 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Dashboard } from '../ui/dashboard';
 
 export interface ExecutionResult {
     code: number | null;
@@ -14,20 +15,21 @@ export interface ExecuteOptions {
     command: string;
     projectRoot: string;
     sandbox?: boolean;
+    runMode?: 'plan' | 'auto';
     onStdout?: (data: string) => void;
     onStderr?: (data: string) => void;
+    onApprovalRequired?: (prompt: string) => void;
 }
 
 export interface IAgentExecutor {
     run(options: ExecuteOptions): Promise<ExecutionResult>;
+    respond(appId: string, chatId: string, input: string): void;
     dispose(): void;
 }
 
-// ---------------------------------------------------------
-// BASE ABSTRACT CLASS
-// ---------------------------------------------------------
 abstract class BaseExecutor implements IAgentExecutor {
     protected sessionsDir: string;
+    protected runningProcesses: Map<string, ChildProcess> = new Map();
 
     constructor(baseDir: string) {
         this.sessionsDir = path.join(baseDir, 'sessions');
@@ -38,101 +40,93 @@ abstract class BaseExecutor implements IAgentExecutor {
 
     protected getWorkspacePath(appId: string, chatId: string): string {
         const workspace = path.join(this.sessionsDir, appId, chatId);
-        if (!fs.existsSync(workspace)) {
-            fs.mkdirSync(workspace, { recursive: true });
-        }
+        if (!fs.existsSync(workspace)) fs.mkdirSync(workspace, { recursive: true });
         return workspace;
     }
 
     abstract run(options: ExecuteOptions): Promise<ExecutionResult>;
 
+    respond(appId: string, chatId: string, input: string) {
+        const key = `${appId}:${chatId}`;
+        const cp = this.runningProcesses.get(key);
+        if (cp && cp.stdin) {
+            Dashboard.logEvent('EXE', `Injecting reply: ${input}`);
+            cp.stdin.write(`${input}\n`);
+        }
+    }
+
     dispose() {
-        // One-shot mode doesn't need persistent cleanup
+        for (const cp of this.runningProcesses.values()) cp.kill();
+        this.runningProcesses.clear();
     }
 }
 
-// ---------------------------------------------------------
-// GEMINI STANDARD ADAPTER (One-shot)
-// ---------------------------------------------------------
 export class GeminiExecutor extends BaseExecutor {
     async run(options: ExecuteOptions): Promise<ExecutionResult> {
         const workspace = this.getWorkspacePath(options.appId, options.chatId);
-        
-        // 构建完整命令行字符串，避免 args 数组在 shell: true 下的解析歧义
-        let cmd = `gemini --yolo --resume latest --include-directories "${options.projectRoot}"`;
-        if (options.sandbox) cmd += ' --sandbox';
-        
-        // 处理指令转义：将双引号转为 \", 并用双引号包裹整个指令
-        const escapedCommand = options.command.replace(/"/g, '\\"');
-        cmd += ` -p "${escapedCommand}"`;
+        const key = `${options.appId}:${options.chatId}`;
+        const mode = options.runMode || 'auto';
 
-        console.log(`[Gemini] Executing: ${cmd}`);
+        // 构建命令
+        let approvalArg = '--yolo'; // Default YOLO
+        let cmdSuffix = '';
+
+        if (mode === 'plan') {
+            approvalArg = '--approval-mode default'; // Strict/Default for planning
+            cmdSuffix = ' (Please only output a detailed execution plan text. Do not execute any tools yet.)';
+        }
+
+        // 核心参数
+        let cmd = `gemini ${approvalArg} --resume latest --include-directories "${options.projectRoot}" -p "${options.command.replace(/"/g, '\\"')}${cmdSuffix}"`;
+        if (options.sandbox) cmd += ' --sandbox';
+
+        Dashboard.logEvent('EXE', `Running [${mode}]: ${options.command.substring(0, 30)}...`);
 
         return new Promise((resolve) => {
             const child = spawn(cmd, {
-                cwd: workspace,
-                env: { 
-                    ...process.env, 
-                    OTEL_SDK_DISABLED: 'true',
-                    FEISHU_APP_ID: options.appId,
-                    FEISHU_CHAT_ID: options.chatId
-                },
+                cwd: options.projectRoot,
+                env: { ...process.env, OTEL_SDK_DISABLED: 'true' },
                 shell: true
             });
+
+            this.runningProcesses.set(key, child);
 
             let stdout = '';
             let stderr = '';
 
-            child.stdout.on('data', (d) => {
+            const checkApproval = (str: string) => {
+                if (mode === 'plan') {
+                    if (str.includes('(y/n)') || str.includes('Confirm?') || str.includes('Allow tool call')) {
+                        Dashboard.logEvent('SYS', 'Found approval prompt in plan mode (unexpected but handled)');
+                    }
+                }
+            };
+
+            child.stdout?.on('data', (d) => {
                 const str = d.toString();
                 stdout += str;
+                process.stdout.write(str);
                 if (options.onStdout) options.onStdout(str);
+                checkApproval(str);
             });
 
-            child.stderr.on('data', (d) => {
+            child.stderr?.on('data', (d) => {
                 const str = d.toString();
                 stderr += str;
                 if (options.onStderr) options.onStderr(str);
+                checkApproval(str);
             });
 
             child.on('close', (code) => {
-                // 处理 Session 缺失自动重试
-                if (code !== 0 && (stderr.includes("No previous sessions found") || stderr.includes("Error resuming session"))) {
-                    console.log("[Gemini] No session found, retrying without resume...");
-                    
-                    let retryCmd = `gemini --yolo --include-directories "${options.projectRoot}"`;
-                    if (options.sandbox) retryCmd += ' --sandbox';
-                    retryCmd += ` -p "${options.command.replace(/"/g, '\\"')}"`;
-
-                    const retryChild = spawn(retryCmd, {
-                        cwd: workspace,
-                        env: { ...process.env, OTEL_SDK_DISABLED: 'true' },
-                        shell: true
-                    });
-
-                    let rOut = '', rErr = '';
-                    retryChild.stdout.on('data', d => { rOut += d.toString(); if (options.onStdout) options.onStdout(d.toString()); });
-                    retryChild.stderr.on('data', d => { rErr += d.toString(); if (options.onStderr) options.onStderr(d.toString()); });
-                    retryChild.on('close', (rCode) => resolve({ code: rCode, stdout: rOut, stderr: rErr }));
-                } else {
-                    resolve({ code, stdout, stderr });
-                }
+                this.runningProcesses.delete(key);
+                resolve({ code, stdout, stderr });
             });
         });
     }
 }
 
-// ---------------------------------------------------------
-// FACTORY
-// ---------------------------------------------------------
 export class ExecutorFactory {
     static create(type: string, baseDir: string): IAgentExecutor {
-        switch (type.toLowerCase()) {
-            case 'gemini':
-                return new GeminiExecutor(baseDir);
-            default:
-                console.warn(`Unknown agent type '${type}', falling back to Gemini.`);
-                return new GeminiExecutor(baseDir);
-        }
+        return new GeminiExecutor(baseDir);
     }
 }

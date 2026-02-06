@@ -77,6 +77,24 @@ export class FeishuAPI {
     }
 
     /**
+     * Update an interactive card message
+     */
+    async updateCard(messageId: string, cardContent: any): Promise<any> {
+        try {
+            return await this.client.request({
+                method: 'PATCH',
+                url: `/open-apis/im/v1/messages/${messageId}`,
+                data: {
+                    content: JSON.stringify(cardContent)
+                }
+            });
+        } catch (error: any) {
+            const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            throw new Error(`Feishu Card Update Error: ${detail}`);
+        }
+    }
+
+    /**
      * Fetch messages from a chat
      */
     async getMessages(chatId: string, pageSize: number = 50, pageToken: string = ""): Promise<any> {

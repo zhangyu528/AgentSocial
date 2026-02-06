@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
+import chalk from 'chalk';
 import { ExecutorFactory } from './core/executor';
 import { FeishuBot } from './platforms/feishu-bot';
 import { BaseBot } from './platforms/base-bot';
+import { Dashboard } from './ui/dashboard';
 import * as readline from 'readline';
 import { execSync } from 'child_process';
 
@@ -18,7 +20,7 @@ async function main() {
     if (!fs.existsSync(configPath)) configPath = path.join(rootDir, 'config.json');
 
     if (!fs.existsSync(configPath)) {
-        console.error("❌ No config.json found.");
+        console.error(chalk.red("❌ No config.json found."));
         console.error("👉 Run 'agent-social register' to get started.");
         process.exit(1);
     }
@@ -28,7 +30,7 @@ async function main() {
     try {
         rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     } catch (e: any) {
-        console.error("❌ Failed to parse config.json:", e.message);
+        console.error(chalk.red("❌ Failed to parse config.json:"), e.message);
         process.exit(1);
     }
 
@@ -36,10 +38,9 @@ async function main() {
 
     checkDependencies(appConfigs);
 
-    console.log(`\n================================================`);
-    console.log(`🤖 AgentSocial Multi-Platform Bridge`);
-    console.log(`Loaded ${appConfigs.length} app(s).`);
-    console.log(`================================================\n`);
+    // 显示仪表盘
+    Dashboard.printBanner(appConfigs.length);
+    Dashboard.printTable(appConfigs);
 
     const botInstances: BaseBot[] = [];
 
@@ -66,7 +67,7 @@ async function main() {
 
     const cleanup = async () => {
         console.log("\nShutting down AgentSocial...");
-        for (const bot of botInstances) await bot.destroy();
+        await Promise.all(botInstances.map(bot => bot.destroy()));
         process.exit(0);
     };
 

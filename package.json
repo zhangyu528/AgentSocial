@@ -1,6 +1,6 @@
 {
   "name": "agent-social",
-  "version": "1.0.0",
+  "version": "0.8.0",
   "description": "Giving AI Agents a social identity: Unified bridge for notifications and commands via Feishu, DingTalk, and more.",
   "main": "dist/src/main.js",
   "bin": {
@@ -32,7 +32,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.58.0"
+    "@larksuiteoapi/node-sdk": "^1.58.0",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.5"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
