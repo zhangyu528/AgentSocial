@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import * as path from 'path';
 
 export class Dashboard {
     static printBanner(appCount: number) {
@@ -12,8 +13,8 @@ export class Dashboard {
 
     static printTable(apps: any[]) {
         const table = new Table({
-            head: [chalk.white('Platform'), chalk.white('App ID'), chalk.white('Agent'), chalk.white('Status')],
-            colWidths: [15, 30, 15, 15],
+            head: [chalk.white('Platform'), chalk.white('App ID'), chalk.white('Agent'), chalk.white('Project'), chalk.white('Status')],
+            colWidths: [12, 20, 12, 20, 15],
             style: { head: [], border: [] } 
         });
 
@@ -22,11 +23,19 @@ export class Dashboard {
                 ? (app.platform === 'feishu' ? chalk.blue('Feishu') : app.platform)
                 : chalk.gray('unknown');
 
+            const projectName = path.basename(app.project_path || process.cwd());
+
+            let statusStr = chalk.yellow('○ Starting');
+            if (app.status === 'online') statusStr = chalk.green('● Online');
+            else if (app.status === 'error') statusStr = chalk.red('✖ Error');
+            else if (app.status === 'offline') statusStr = chalk.gray('○ Offline');
+
             table.push([
                 platformName,
-                chalk.gray(app.app_id.substring(0, 20) + '...'),
+                chalk.gray(app.app_id.substring(0, 12) + '...'),
                 chalk.magenta(app.agent_type || 'gemini'),
-                chalk.green('● Online')
+                chalk.cyan(projectName),
+                statusStr
             ]);
         });
 

@@ -39,31 +39,43 @@ async function main() {
     checkDependencies(appConfigs);
 
     // 显示仪表盘
-    Dashboard.printBanner(appConfigs.length);
-    Dashboard.printTable(appConfigs);
+    const appsWithStatus = appConfigs.map((c: any) => ({ ...c, status: 'starting' }));
+    Dashboard.printBanner(appsWithStatus.length);
 
     const botInstances: BaseBot[] = [];
+    const startupPromises: Promise<void>[] = [];
 
-    for (const config of appConfigs) {
-        // Determine platform (default to feishu)
+    for (let i = 0; i < appConfigs.length; i++) {
+        const config = appConfigs[i];
         const platform = config.platform || 'feishu';
         const agentType = config.agent_type || 'gemini';
         
-        // 1. Create specialized executor
         const executor = ExecutorFactory.create(agentType, rootDir);
         
-        // 2. Create specialized bot instance
         let bot: BaseBot;
         if (platform === 'feishu') {
             bot = new FeishuBot(config, executor, PROJECT_ROOT);
         } else {
-            console.error(`❌ Unsupported platform: ${platform}`);
+            appsWithStatus[i].status = 'error';
             continue;
         }
 
-        bot.start();
+        const startup = bot.start().then(() => {
+            appsWithStatus[i].status = 'online';
+        }).catch((e) => {
+            appsWithStatus[i].status = 'error';
+            Dashboard.logEvent('ERR', `Bot ${config.app_id} failed to start: ${e.message}`);
+        });
+
+        startupPromises.push(startup);
         botInstances.push(bot);
     }
+
+    // 等待所有启动任务完成
+    await Promise.all(startupPromises);
+    
+    // 打印最终状态表格
+    Dashboard.printTable(appsWithStatus);
 
     const cleanup = async () => {
         console.log("\nShutting down AgentSocial...");
@@ -137,13 +149,22 @@ async function runConfigWizard(): Promise<any> {
     const answer = await ask("Enter number [1]: ");
     const agent = installedAgents[parseInt(answer) - 1]?.id || installedAgents[0].id;
 
-    console.log("\n--- Feishu Config ---");
+    console.log("\n--- Project & Feishu Config ---");
+    const currentDir = process.cwd();
+    const projectPathInput = await ask(`Project path (default: ${currentDir}): `);
+    const projectPath = projectPathInput.trim() || currentDir;
+
     const appId = await ask("App ID: ");
     const appSecret = await ask("App Secret: ");
-    const useSandbox = (await ask("Enable Sandbox? [Y/n]: ")).toLowerCase() !== 'n';
 
     rl.close();
-    return { "platform": "feishu", "app_id": appId.trim(), "app_secret": appSecret.trim(), "agent_type": agent, "sandbox": useSandbox };
+    return { 
+        "platform": "feishu", 
+        "app_id": appId.trim(), 
+        "app_secret": appSecret.trim(), 
+        "agent_type": agent, 
+        "project_path": projectPath
+    };
 }
 
 if (args.includes('register')) {

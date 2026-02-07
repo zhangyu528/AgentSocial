@@ -17,15 +17,31 @@ export class FeishuBot extends BaseBot {
 
     async start() {
         try {
-            const botInfo = await this.api.getBotInfo();
+            // 1. 凭证预检 (Credential & Network Pre-check)
+            Dashboard.logEvent('SYS', `[Feishu] 正在验证凭证...`);
+            let botInfo;
+            try {
+                botInfo = await this.api.getBotInfo();
+            } catch (error: any) {
+                if (error.message.includes('400') || error.message.includes('401') || error.message.includes('10003')) {
+                    Dashboard.logEvent('ERR', `[Feishu] 启动失败: 飞书 App ID 或 App Secret 错误，请检查配置。`);
+                } else {
+                    Dashboard.logEvent('ERR', `[Feishu] 启动失败: 网络连接异常，无法访问飞书 API。`);
+                }
+                Dashboard.logEvent('ERR', `[Detail] ${error.message}`);
+                setTimeout(() => process.exit(1), 500);
+                return;
+            }
+
             this.botOpenId = botInfo.open_id;
             this.botName = botInfo.app_name;
 
             const wsClient = new lark.WSClient({
                 appId: this.config.app_id,
                 appSecret: this.config.app_secret,
+                loggerLevel: lark.LoggerLevel.error,
                 logger: {
-                    error: () => { },
+                    error: (msg: any) => Dashboard.logEvent('ERR', `[SDK] ${msg}`),
                     warn: () => { },
                     info: () => { },
                     debug: () => { },
@@ -33,12 +49,21 @@ export class FeishuBot extends BaseBot {
                 }
             });
 
-            wsClient.start({
-                eventDispatcher: new lark.EventDispatcher({}).register({
+            Dashboard.logEvent('SYS', `[Feishu] 凭证验证通过: ${this.botName}，正在建立连接...`);
+
+            await wsClient.start({
+                eventDispatcher: new lark.EventDispatcher({
+                    loggerLevel: lark.LoggerLevel.error,
+                    logger: {
+                        error: (msg: any) => Dashboard.logEvent('ERR', `[SDK] ${msg}`),
+                        warn: () => { },
+                        info: () => { },
+                        debug: () => { },
+                        trace: () => { }
+                    }
+                }).register({
                     'im.message.receive_v1': async (data) => this.onMessage(data),
                     'card.action.trigger': async (data: any) => {
-                        Dashboard.logEvent('SYS', `[Card Click] Raw Data: ${JSON.stringify(data)}`);
-
                         const actionId = data.action?.value?.action_id;
                         const chatId = data.action?.value?.chat_id;
                         const messageId = data.context?.open_message_id;
@@ -55,7 +80,7 @@ export class FeishuBot extends BaseBot {
                                 const summary = prompt ? `**操作:**\n${prompt}` : `**目标:** ${originalCmd || '未知指令'}`;
                                 cardToUpdate = this.createOperatedCard("🚫 操作已取消", summary, "❌ 已拒绝/取消", "grey");
                             } else if (actionId === 'execute_plan' && originalCmd) {
-                                this.executePlan(chatId, originalCmd);
+                                this.executePlan(chatId, originalCmd, messageId);
                                 cardToUpdate = this.createOperatedCard("📋 执行计划 (已确认)", `**目标:** ${originalCmd}`, "🚀 正在后台执行...", "green");
                             }
 
@@ -77,14 +102,26 @@ export class FeishuBot extends BaseBot {
                 })
             });
 
-            Dashboard.logEvent('SYS', `[Feishu] Bot Started: ${this.botName}`);
-
-            // 3. 预热启动: 通过标准入口拉起进程，使用内部ID保持静默
-            Dashboard.logEvent('SYS', `[Feishu] Pre-warming agent process...`);
-            // Pre-warm uses 'auto' mode implicitly via base class if we called super, 
-            // but here we might want to just let it be. 
-            // Since we override handleIncomingCommand, we need to be careful.
-            // But pre-warm is 'internal-prewarm', which we can filter.
+            // 3. 智能预热 (Intelligent Pre-warming)
+            Dashboard.logEvent('SYS', `[Agent] 正在建立项目索引 (预热就绪中)...`);
+            try {
+                // 执行一个真实但轻量的任务来索引项目并验证模型
+                // 使用 'plan' 模式来确保逻辑路径与实际输入一致
+                await this.queue.enqueue(
+                    this.appId,
+                    'internal-prewarm',
+                    'list the project root files briefly', 
+                    this.projectRoot,
+                    'plan',
+                    undefined,
+                    undefined,
+                    true // silent = true
+                );
+                Dashboard.logEvent('SYS', `[Agent] 预热完成，索引已建立。`);
+            } catch (error: any) {
+                Dashboard.logEvent('ERR', `[Agent] 预热失败: ${error.message}`);
+                throw error; // 向上抛出以触发 main.ts 中的 status = 'error'
+            }
 
             // 平台特定的上线通知
             await this.broadcastCard(this.createOnlineCard());
@@ -99,16 +136,37 @@ export class FeishuBot extends BaseBot {
         Dashboard.logEvent('SYS', `[Feishu] Bot ${this.appId} stopped.`);
     }
 
-    // ... createOnlineCard ... createOfflineCard ... (Unchanged, so not including in replacement if possible, but replace_file_content needs contiguous block. I'll include them if needed or skip if I can target start/end line precisely)
-    // Actually, I'll just replace the whole class body from start() downwards to end of file to be safe and easiest.
-
     private createOnlineCard() {
         const info = this.getStatusInfo();
         return {
+            config: { wide_screen_mode: true },
             header: { title: { content: "🚀 AgentSocial 已上线", tag: "plain_text" }, template: "wathet" },
             elements: [
-                { tag: "div", text: { content: `**机器人:** ${this.botName}\n**项目:** ${info.projectName}\n**模式:** ${info.agentType}`, tag: "lark_md" } },
-                { tag: "note", elements: [{ tag: "plain_text", content: `时间: ${info.time}` }] }
+                {
+                    tag: "column_set",
+                    flex_mode: "flow",
+                    background_style: "default",
+                    columns: [
+                        {
+                            tag: "column",
+                            width: "weighted",
+                            weight: 1,
+                            elements: [
+                                { tag: "div", text: { content: `**机器人:**\n${this.botName}`, tag: "lark_md" } }
+                            ]
+                        },
+                        {
+                            tag: "column",
+                            width: "weighted",
+                            weight: 1,
+                            elements: [
+                                { tag: "div", text: { content: `**项目:**\n${info.projectName}`, tag: "lark_md" } }
+                            ]
+                        }
+                    ]
+                },
+                { tag: "hr" },
+                { tag: "note", elements: [{ tag: "plain_text", content: `上线时间: ${info.time} | 模式: ${info.agentType}` }] }
             ]
         };
     }
@@ -116,15 +174,17 @@ export class FeishuBot extends BaseBot {
     private createOfflineCard() {
         const info = this.getStatusInfo();
         return {
+            config: { wide_screen_mode: true },
             header: { title: { content: "📴 AgentSocial 已下线", tag: "plain_text" }, template: "grey" },
             elements: [
-                { tag: "div", text: { content: `**机器人:** ${this.botName || this.appId}\n**项目:** ${info.projectName}`, tag: "lark_md" } }
+                { tag: "div", text: { content: `**机器人:** ${this.botName || this.appId}\n**项目:** ${info.projectName}`, tag: "lark_md" } },
+                { tag: "note", elements: [{ tag: "plain_text", content: `下线时间: ${new Date().toLocaleString()}` }] }
             ]
         };
     }
 
     private createOperatedCard(title: string, content: string, status: string, template: string = 'grey') {
-        const safeContent = content.length > 500 ? content.substring(0, 497) + '...' : content;
+        const safeContent = content.length > 800 ? content.substring(0, 797) + '...' : content;
         return {
             config: { wide_screen_mode: true },
             header: {
@@ -134,11 +194,14 @@ export class FeishuBot extends BaseBot {
             elements: [
                 {
                     tag: "div",
-                    text: { content: safeContent, tag: "lark_md" }
+                    text: { content: `**操作内容:**\n${safeContent}`, tag: "lark_md" }
                 },
+                { tag: "hr" },
                 {
                     tag: "note",
-                    elements: [{ tag: "plain_text", content: `状态: ${status}` }]
+                    elements: [
+                        { tag: "plain_text", content: `状态: ${status}` }
+                    ]
                 }
             ]
         };
@@ -149,7 +212,14 @@ export class FeishuBot extends BaseBot {
             config: { wide_screen_mode: true },
             header: { title: { content: "⚠️ 敏感操作审批", tag: "plain_text" }, template: "orange" },
             elements: [
-                { tag: "div", text: { content: `**Agent 申请执行操作:**\n\`\`\`\n${prompt}\n\`\`\``, tag: "lark_md" } },
+                {
+                    tag: "div",
+                    text: { content: `**Agent 申请执行以下敏感操作:**`, tag: "lark_md" }
+                },
+                {
+                    tag: "div",
+                    text: { content: `\`\`\`\n${prompt}\n\`\`\``, tag: "lark_md" }
+                },
                 {
                     tag: "action",
                     actions: [
@@ -179,9 +249,15 @@ export class FeishuBot extends BaseBot {
             config: { wide_screen_mode: true },
             header: { title: { content: "📋 执行计划确认", tag: "plain_text" }, template: "blue" },
             elements: [
-                { tag: "div", text: { content: `**目标:** ${originalCmd}`, tag: "lark_md" } },
+                {
+                    tag: "div",
+                    text: { content: `🔍 **指令目标:**\n${originalCmd}`, tag: "lark_md" }
+                },
                 { tag: "hr" },
-                { tag: "div", text: { content: `**拟定计划:**\n${plan}`, tag: "lark_md" } },
+                {
+                    tag: "div",
+                    text: { content: `💡 **拟定执行计划:**\n${plan}`, tag: "lark_md" }
+                },
                 {
                     tag: "action",
                     actions: [
@@ -198,6 +274,10 @@ export class FeishuBot extends BaseBot {
                             value: { action_id: "deny", chat_id: chatId, original_cmd: originalCmd }
                         }
                     ]
+                },
+                {
+                    tag: "note",
+                    elements: [{ tag: "plain_text", content: "请预览计划，点击按钮后 Agent 将进入自主执行模式" }]
                 }
             ]
         };
@@ -214,18 +294,28 @@ export class FeishuBot extends BaseBot {
         const card = {
             config: { wide_screen_mode: true },
             header: { 
-                title: { content: isSuccess ? "✅ 执行成功" : "❌ 执行失败", tag: "plain_text" }, 
+                title: { content: isSuccess ? "✅ 任务执行成功" : "❌ 任务执行失败", tag: "plain_text" }, 
                 template: isSuccess ? "green" : "red" 
             },
             elements: [
-                { tag: "div", text: { content: `**目标:** ${originalCmd}`, tag: "lark_md" } },
+                {
+                    tag: "div",
+                    text: { content: `🔍 **目标:** ${originalCmd}`, tag: "lark_md" }
+                },
                 { tag: "hr" },
                 { 
                     tag: "div", 
                     text: { 
-                        content: result.length > 3000 ? result.substring(0, 2900) + "\n\n... (输出过长已截断)" : result, 
+                        content: `📑 **执行输出:**\n${result.length > 2500 ? result.substring(0, 2400) + "\n\n... (内容过长已截断)" : result}`, 
                         tag: "lark_md" 
                     } 
+                },
+                { tag: "hr" },
+                {
+                    tag: "note",
+                    elements: [
+                        { tag: "plain_text", content: `完成时间: ${new Date().toLocaleString()}` }
+                    ]
                 }
             ]
         };
@@ -268,7 +358,6 @@ export class FeishuBot extends BaseBot {
                 chatId,
                 content,
                 this.projectRoot,
-                this.config.sandbox,
                 'plan'
             );
 
@@ -280,14 +369,13 @@ export class FeishuBot extends BaseBot {
         }
     }
 
-    private async executePlan(chatId: string, content: string) {
+    private async executePlan(chatId: string, content: string, messageId?: string) {
         try {
             const result = await this.queue.enqueue(
                 this.appId,
                 chatId,
                 content, // Re-run with same command but in auto mode
                 this.projectRoot,
-                this.config.sandbox,
                 'auto',
                 (data) => this.interceptProactiveMessages(chatId, data),
                 (prompt) => this.sendApprovalCard(chatId, prompt)
@@ -303,9 +391,21 @@ export class FeishuBot extends BaseBot {
             const isSuccess = result.code === 0;
             const output = isSuccess ? (cleanOutput || "✅ 执行完毕。") : `错误输出:\n${cleanOutput}\n\n${errorOutput}`;
 
+            // 1. 发送最终的结果卡片（新消息）
             await this.sendResultCard(chatId, content, output, isSuccess);
+
+            // 2. 更新最初的计划确认卡片，告知已结束
+            if (messageId) {
+                const finalStatus = isSuccess ? "✅ 已完成，详情见下方结果卡片" : "❌ 执行失败，详情见下方卡片";
+                const card = this.createOperatedCard("📋 执行计划 (处理结束)", `**目标:** ${content}`, finalStatus, isSuccess ? "green" : "red");
+                await this.api.updateCard(messageId, card).catch(() => {});
+            }
         } catch (error: any) {
             await this.sendResultCard(chatId, content, `❌ 执行过程中出现异常: ${error.message}`, false);
+            if (messageId) {
+                const card = this.createOperatedCard("📋 执行计划 (出现故障)", `**目标:** ${content}`, "❌ 系统异常中断", "red");
+                await this.api.updateCard(messageId, card).catch(() => {});
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "agent-social",
-  "version": "0.8.0",
+  "version": "0.1.0",
   "description": "Giving AI Agents a social identity: Unified bridge for notifications and commands via Feishu, DingTalk, and more.",
   "main": "dist/src/main.js",
   "bin": {

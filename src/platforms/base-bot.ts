@@ -68,10 +68,9 @@ export abstract class BaseBot {
                 chatId,
                 content,
                 this.projectRoot,
-                this.config.sandbox,
                 'auto',
-                (data) => this.interceptProactiveMessages(chatId, data),
-                (prompt) => this.sendApprovalCard(chatId, prompt)
+                (data: string) => this.interceptProactiveMessages(chatId, data),
+                (prompt: string) => this.sendApprovalCard(chatId, prompt)
             );
 
             // 过滤 ANSI 转义字符，让发回飞书的文字变干净

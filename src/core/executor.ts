@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { Dashboard } from '../ui/dashboard';
 
 export interface ExecutionResult {
@@ -14,7 +15,7 @@ export interface ExecuteOptions {
     chatId: string;
     command: string;
     projectRoot: string;
-    sandbox?: boolean;
+    silent?: boolean;
     runMode?: 'plan' | 'auto';
     onStdout?: (data: string) => void;
     onStderr?: (data: string) => void;
@@ -64,28 +65,55 @@ abstract class BaseExecutor implements IAgentExecutor {
 export class GeminiExecutor extends BaseExecutor {
     async run(options: ExecuteOptions): Promise<ExecutionResult> {
         const workspace = this.getWorkspacePath(options.appId, options.chatId);
+        const dotGemini = path.join(workspace, '.gemini');
+        if (!fs.existsSync(dotGemini)) fs.mkdirSync(dotGemini, { recursive: true });
+
+        // Sync global auth state to isolated workspace so agent recognizes user
+        const globalHome = path.join(os.homedir(), '.gemini');
+        const authFiles = ['google_accounts.json', 'oauth_creds.json', 'settings.json', 'installation_id'];
+        let syncCount = 0;
+        for (const file of authFiles) {
+            const src = path.join(globalHome, file);
+            if (fs.existsSync(src)) {
+                try {
+                    fs.copyFileSync(src, path.join(dotGemini, file));
+                    syncCount++;
+                } catch (e) {}
+            }
+        }
+
+        Dashboard.logEvent('SYS', `[Agent] Workspace: ${workspace} (Auth synced: ${syncCount})`);
         const key = `${options.appId}:${options.chatId}`;
         const mode = options.runMode || 'auto';
 
         // 构建命令
         let approvalArg = '--yolo'; // Default YOLO
         let cmdSuffix = '';
+        let resumeArg = '';
 
         if (mode === 'plan') {
             approvalArg = '--approval-mode default'; // Strict/Default for planning
             cmdSuffix = ' (Please only output a detailed execution plan text. Do not execute any tools yet.)';
+            resumeArg = ''; // Always start a fresh session for planning to ensure isolation
+        } else {
+            resumeArg = '--resume latest'; // Resume the plan session for actual execution
         }
 
         // 核心参数
-        let cmd = `gemini ${approvalArg} --resume latest --include-directories "${options.projectRoot}" -p "${options.command.replace(/"/g, '\\"')}${cmdSuffix}"`;
-        if (options.sandbox) cmd += ' --sandbox';
+        let cmd = `gemini ${approvalArg} ${resumeArg} --include-directories "${options.projectRoot}" -p "${options.command.replace(/"/g, '\\"')}${cmdSuffix}"`;
 
-        Dashboard.logEvent('EXE', `Running [${mode}]: ${options.command.substring(0, 30)}...`);
+        if (!options.silent) {
+            Dashboard.logEvent('EXE', `Running [${mode}]: ${options.command.substring(0, 30)}...`);
+        }
 
         return new Promise((resolve) => {
             const child = spawn(cmd, {
-                cwd: options.projectRoot,
-                env: { ...process.env, OTEL_SDK_DISABLED: 'true' },
+                cwd: workspace, // Run inside the session workspace to keep memory isolated
+                env: { 
+                    ...process.env, 
+                    // Direct the agent to store all state and history inside our sessions folder
+                    GEMINI_CLI_HOME: workspace 
+                },
                 shell: true
             });
 
@@ -105,7 +133,7 @@ export class GeminiExecutor extends BaseExecutor {
             child.stdout?.on('data', (d) => {
                 const str = d.toString();
                 stdout += str;
-                process.stdout.write(str);
+                if (!options.silent) process.stdout.write(str);
                 if (options.onStdout) options.onStdout(str);
                 checkApproval(str);
             });
@@ -113,6 +141,7 @@ export class GeminiExecutor extends BaseExecutor {
             child.stderr?.on('data', (d) => {
                 const str = d.toString();
                 stderr += str;
+                if (!options.silent) process.stderr.write(str);
                 if (options.onStderr) options.onStderr(str);
                 checkApproval(str);
             });

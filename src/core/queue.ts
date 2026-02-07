@@ -5,7 +5,7 @@ interface Task {
     chatId: string;
     command: string;
     projectRoot: string;
-    sandbox?: boolean;
+    silent?: boolean;
     runMode?: 'plan' | 'auto';
     onStdout?: (data: string) => void;
     onApprovalRequired?: (prompt: string) => void;
@@ -26,9 +26,18 @@ export class TaskQueue {
         return `${appId}:${chatId}`;
     }
 
-    async enqueue(appId: string, chatId: string, command: string, projectRoot: string, sandbox?: boolean, runMode: 'plan' | 'auto' = 'auto', onStdout?: (data: string) => void, onApprovalRequired?: (prompt: string) => void): Promise<any> {
+    async enqueue(
+        appId: string, 
+        chatId: string, 
+        command: string, 
+        projectRoot: string, 
+        runMode: 'plan' | 'auto' = 'auto', 
+        onStdout?: (data: string) => void, 
+        onApprovalRequired?: (prompt: string) => void,
+        silent?: boolean
+    ): Promise<any> {
         return new Promise((resolve, reject) => {
-            const task: Task = { appId, chatId, command, projectRoot, sandbox, runMode, onStdout, onApprovalRequired, resolve, reject };
+            const task: Task = { appId, chatId, command, projectRoot, runMode, onStdout, onApprovalRequired, resolve, reject, silent };
             const key = this.getQueueKey(appId, chatId);
             if (!this.queues.has(key)) this.queues.set(key, []);
             this.queues.get(key)!.push(task);
@@ -50,8 +59,8 @@ export class TaskQueue {
                 chatId: task.chatId,
                 command: task.command,
                 projectRoot: task.projectRoot,
-                sandbox: task.sandbox,
                 runMode: task.runMode,
+                silent: task.silent,
                 onStdout: (data) => {
                     if (task.onStdout) task.onStdout(data);
                 },
