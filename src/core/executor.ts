@@ -82,7 +82,6 @@ export class GeminiExecutor extends BaseExecutor {
             }
         }
 
-        Dashboard.logEvent('SYS', `[Agent] Workspace: ${workspace} (Auth synced: ${syncCount})`);
         const key = `${options.appId}:${options.chatId}`;
         const mode = options.runMode || 'auto';
 

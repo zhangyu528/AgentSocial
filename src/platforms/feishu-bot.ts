@@ -140,33 +140,19 @@ export class FeishuBot extends BaseBot {
         const info = this.getStatusInfo();
         return {
             config: { wide_screen_mode: true },
-            header: { title: { content: "🚀 AgentSocial 已上线", tag: "plain_text" }, template: "wathet" },
+            header: { title: { content: "🚀 AgentSocial 已连接并就绪", tag: "plain_text" }, template: "wathet" },
             elements: [
                 {
-                    tag: "column_set",
-                    flex_mode: "flow",
-                    background_style: "default",
-                    columns: [
-                        {
-                            tag: "column",
-                            width: "weighted",
-                            weight: 1,
-                            elements: [
-                                { tag: "div", text: { content: `**机器人:**\n${this.botName}`, tag: "lark_md" } }
-                            ]
-                        },
-                        {
-                            tag: "column",
-                            width: "weighted",
-                            weight: 1,
-                            elements: [
-                                { tag: "div", text: { content: `**项目:**\n${info.projectName}`, tag: "lark_md" } }
-                            ]
-                        }
-                    ]
+                    tag: "div",
+                    text: { content: `**Agent 已准备好接管项目:** ${info.projectName}\n**当前运行模式:** ${info.agentType}`, tag: "lark_md" }
                 },
                 { tag: "hr" },
-                { tag: "note", elements: [{ tag: "plain_text", content: `上线时间: ${info.time} | 模式: ${info.agentType}` }] }
+                {
+                    tag: "div",
+                    text: { content: "💡 **如何开始使用？**\n1️⃣ **拉我入群**：请将本机器人加入到您的项目群组中。\n2️⃣ **发送指令**：在群里 @我 并说出任务（如：*@Agent 帮我重构 main.ts*）。\n3️⃣ **批准计划**：我会先给您发送执行计划，您点击“批准”后我才会正式动工。", tag: "lark_md" }
+                },
+                { tag: "hr" },
+                { tag: "note", elements: [{ tag: "plain_text", content: `上线时间: ${info.time} | 任务隔离: 已开启` }] }
             ]
         };
     }
@@ -225,13 +211,13 @@ export class FeishuBot extends BaseBot {
                     actions: [
                         {
                             tag: "button",
-                            text: { tag: "plain_text", content: "✅ 批准执行" },
+                            text: { tag: "plain_text", content: "✅ 准许执行" },
                             type: "primary",
                             value: { action_id: "approve", chat_id: chatId, prompt: prompt }
                         },
                         {
                             tag: "button",
-                            text: { tag: "plain_text", content: "❌ 拒绝" },
+                            text: { tag: "plain_text", content: "✖ 拒绝操作" },
                             type: "danger",
                             value: { action_id: "deny", chat_id: chatId, prompt: prompt }
                         }
@@ -263,14 +249,18 @@ export class FeishuBot extends BaseBot {
                     actions: [
                         {
                             tag: "button",
-                            text: { tag: "plain_text", content: "🚀 批准并自动执行" },
+                            text: { tag: "plain_text", content: "🚀 确认计划并开工" },
                             type: "primary",
+                            confirm: {
+                                title: { tag: "plain_text", content: "确认开始执行？" },
+                                text: { tag: "plain_text", content: "Agent 将按照拟定计划自动修改您的项目代码。" }
+                            },
                             value: { action_id: "execute_plan", chat_id: chatId, original_cmd: originalCmd }
                         },
                         {
                             tag: "button",
-                            text: { tag: "plain_text", content: "❌ 取消" },
-                            type: "default",
+                            text: { tag: "plain_text", content: "✖ 放弃本次任务" },
+                            type: "danger",
                             value: { action_id: "deny", chat_id: chatId, original_cmd: originalCmd }
                         }
                     ]
@@ -330,10 +320,44 @@ export class FeishuBot extends BaseBot {
 
     private async broadcastCard(card: any) {
         try {
-            const joinedChats = await this.api.getJoinedChats();
-            const ids = (joinedChats.data?.items || []).map((c: any) => c.chat_id);
-            for (const id of ids) await this.api.sendCard(id, 'chat_id', card);
-        } catch (e) { }
+            const groupIds = new Set<string>();
+            const userOpenIds = new Set<string>();
+
+            // 1. Collect all joined groups (via chat ID)
+            let chatToken = "";
+            do {
+                const res = await this.api.getJoinedChats(50, chatToken);
+                const items = res.data?.items || [];
+                // Every item in this list is a chat the bot is a member of (mostly groups)
+                items.forEach((c: any) => groupIds.add(c.chat_id));
+                chatToken = res.data?.page_token || "";
+            } while (chatToken);
+
+            // 2. Collect all authorized users (via Open ID)
+            let userToken = "";
+            try {
+                do {
+                    const res = await this.api.getUsers(50, userToken);
+                    const items = res.data?.items || [];
+                    items.forEach((u: any) => userOpenIds.add(u.open_id));
+                    userToken = res.data?.page_token || "";
+                } while (userToken);
+            } catch (e: any) {
+                Dashboard.logEvent('ERR', `User broadcast aborted: ${e.message}.`);
+            }
+
+            if (groupIds.size > 0 || userOpenIds.size > 0) {
+                Dashboard.logEvent('SYS', `[Feishu] Broadcasting to ${groupIds.size} groups and ${userOpenIds.size} users...`);
+                
+                // Send to groups
+                for (const id of groupIds) await this.api.sendCard(id, 'chat_id', card).catch(() => {});
+                
+                // Send to users (P2P)
+                for (const id of userOpenIds) await this.api.sendCard(id, 'open_id', card).catch(() => {});
+            }
+        } catch (e: any) {
+            Dashboard.logEvent('ERR', `[Feishu] Broadcast failed: ${e.message}`);
+        }
     }
 
     protected async handleIncomingCommand(chatId: string, content: string, messageId?: string) {
@@ -413,12 +437,12 @@ export class FeishuBot extends BaseBot {
         const message = data.message;
         if (!message || message.message_type !== 'text') return;
 
+        const isDirect = message.chat_type === 'p2p';
         const mentions = message.mentions || [];
         const isMentioned = mentions.some((m: any) => {
             const mId = (typeof m.id === 'object') ? m.id.open_id : m.id;
             return mId === this.botOpenId || mId === this.appId;
         });
-        const isDirect = message.chat_type === 'p2p';
 
         if (isDirect || isMentioned) {
             let content = JSON.parse(message.content).text;
@@ -427,6 +451,9 @@ export class FeishuBot extends BaseBot {
                 const mId = (typeof m.id === 'object') ? m.id.open_id : m.id;
                 if (mId === this.botOpenId || mId === this.appId) content = content.replace(m.key, '');
             });
+
+            const source = isDirect ? 'P2P' : 'Group';
+            Dashboard.logEvent('MSG', `[Feishu] Received ${source} command from ${message.chat_id.substring(0, 10)}...`);
 
             // Call the base class logic -> Now overridden
             await this.handleIncomingCommand(message.chat_id, content.trim(), message.message_id);

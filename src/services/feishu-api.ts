@@ -95,6 +95,78 @@ export class FeishuAPI {
     }
 
     /**
+     * Probes current permissions and connectivity
+     */
+    async diagnose(): Promise<{ name: string, status: boolean, error?: string, hint?: string }[]> {
+        const report = [];
+        
+        // 1. Auth & Bot Identity
+        try {
+            const info = await this.getBotInfo();
+            report.push({ name: `Credentials (${info.app_name})`, status: true });
+        } catch (e: any) {
+            report.push({ 
+                name: 'Credentials', 
+                status: false, 
+                error: e.message,
+                hint: 'Check if App ID and App Secret are correct.'
+            });
+            return report;
+        }
+
+        // 2. Scope: Chat List
+        try {
+            await this.getJoinedChats(1);
+            report.push({ name: 'Scope: im:chat:readonly', status: true });
+        } catch (e: any) {
+            report.push({ 
+                name: 'Scope: im:chat:readonly', 
+                status: false, 
+                error: 'Denied',
+                hint: 'Go to "Permission Management" and enable "View group information".'
+            });
+        }
+
+        // 3. Scope: Sending Messages (Simple check via error codes if possible)
+        try {
+            // Try to list messages (requires im:message:readonly)
+            await this.getMessages('dummy_id', 1);
+            report.push({ name: 'Scope: im:message:readonly', status: true });
+        } catch (e: any) {
+            if (e.message.includes('permission')) {
+                report.push({ 
+                    name: 'Scope: im:message:readonly', 
+                    status: false, 
+                    hint: 'Go to "Permission Management" and enable "Receive message content".'
+                });
+            } else {
+                // If it's just "chat not found", the permission is likely there
+                report.push({ name: 'Scope: im:message:readonly', status: true });
+            }
+        }
+
+        return report;
+    }
+
+    /**
+     * Get all users authorized to use this app via flat user list API
+     */
+    async getUsers(pageSize: number = 50, pageToken: string = ""): Promise<any> {
+        try {
+            return await this.client.contact.user.list({
+                params: {
+                    parent_department_id: '0',
+                    page_size: pageSize,
+                    page_token: pageToken,
+                },
+            });
+        } catch (error: any) {
+            const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            throw new Error(`Failed to fetch user list: ${detail}`);
+        }
+    }
+
+    /**
      * Fetch messages from a chat
      */
     async getMessages(chatId: string, pageSize: number = 50, pageToken: string = ""): Promise<any> {
@@ -115,11 +187,12 @@ export class FeishuAPI {
     /**
      * Get all chats the bot has joined
      */
-    async getJoinedChats(pageSize: number = 100): Promise<any> {
+    async getJoinedChats(pageSize: number = 100, pageToken: string = ""): Promise<any> {
         try {
             return await this.client.im.chat.list({
                 params: {
                     page_size: pageSize,
+                    page_token: pageToken
                 },
             });
         } catch (error: any) {
