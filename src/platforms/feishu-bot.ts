@@ -17,22 +17,24 @@ export class FeishuBot extends BaseBot {
 
     async start() {
         try {
-            // 1. 凭证预检 (Credential & Network Pre-check)
-            Dashboard.logEvent('SYS', `[Feishu] 正在验证凭证...`);
-            let botInfo;
-            try {
-                botInfo = await this.api.getBotInfo();
-            } catch (error: any) {
-                if (error.message.includes('400') || error.message.includes('401') || error.message.includes('10003')) {
-                    Dashboard.logEvent('ERR', `[Feishu] 启动失败: 飞书 App ID 或 App Secret 错误，请检查配置。`);
-                } else {
-                    Dashboard.logEvent('ERR', `[Feishu] 启动失败: 网络连接异常，无法访问飞书 API。`);
-                }
-                Dashboard.logEvent('ERR', `[Detail] ${error.message}`);
-                setTimeout(() => process.exit(1), 500);
+            // 1. 启动状态自检 (Full Health Check)
+            Dashboard.logEvent('SYS', `[Feishu] 正在执行启动状态自检...`);
+            const report = await this.api.diagnose();
+            const failures = report.filter(r => !r.status);
+
+            if (failures.length > 0) {
+                Dashboard.logEvent('ERR', `[Feishu] 启动自检未通过，缺少关键权限：`);
+                failures.forEach(f => {
+                    Dashboard.logEvent('ERR', `   - ❌ ${f.name}`);
+                    if (f.hint) Dashboard.logEvent('SYS', `     👉 修复建议: ${f.hint}`);
+                });
+                Dashboard.logEvent('ERR', `[Feishu] 请前往飞书后台配置并发布新版本后重试。`);
+                setTimeout(() => process.exit(1), 1000);
                 return;
             }
 
+            // 2. 获取机器人基础信息
+            const botInfo = await this.api.getBotInfo();
             this.botOpenId = botInfo.open_id;
             this.botName = botInfo.app_name;
 
@@ -70,8 +72,8 @@ export class FeishuBot extends BaseBot {
                         const originalCmd = data.action?.value?.original_cmd;
                         const prompt = data.action?.value?.prompt;
 
+                        let cardToUpdate: any = null;
                         if (messageId && chatId) {
-                            let cardToUpdate;
                             if (actionId === 'approve') {
                                 this.approve(chatId);
                                 cardToUpdate = this.createOperatedCard("⚠️ 敏感操作审批 (已批准)", `**操作:**\n${prompt || '未知操作'}`, "✅ 已批准", "green");
@@ -85,18 +87,16 @@ export class FeishuBot extends BaseBot {
                             }
 
                             if (cardToUpdate) {
-                                // 异步更新，避开同步响应的冲突
-                                setTimeout(() => {
-                                    this.api.updateCard(messageId, cardToUpdate).catch(e => {
-                                        Dashboard.logEvent('ERR', `Async Card Update Failed: ${e.message}`);
-                                    });
-                                }, 300);
+                                // 立即执行异步更新（依赖 update_multi: true 保证多端同步）
+                                this.api.updateCard(messageId, cardToUpdate).catch(e => {
+                                    Dashboard.logEvent('ERR', `Async Card Update Failed: ${e.message}`);
+                                });
                             }
                         }
 
-                        // 同步只返回 toast，避免报错 code
+                        // 仅返回 Toast，确保接口极速响应，避免超时或格式错误
                         return {
-                            toast: { type: "info", content: "指令已确认，处理中..." }
+                            toast: { type: "info", content: "操作已确认，处理中..." }
                         };
                     }
                 })
@@ -139,7 +139,7 @@ export class FeishuBot extends BaseBot {
     private createOnlineCard() {
         const info = this.getStatusInfo();
         return {
-            config: { wide_screen_mode: true },
+            config: { wide_screen_mode: true, update_multi: true },
             header: { title: { content: "🚀 AgentSocial 已连接并就绪", tag: "plain_text" }, template: "wathet" },
             elements: [
                 {
@@ -149,7 +149,7 @@ export class FeishuBot extends BaseBot {
                 { tag: "hr" },
                 {
                     tag: "div",
-                    text: { content: "💡 **如何开始使用？**\n1️⃣ **拉我入群**：请将本机器人加入到您的项目群组中。\n2️⃣ **发送指令**：在群里 @我 并说出任务（如：*@Agent 帮我重构 main.ts*）。\n3️⃣ **批准计划**：我会先给您发送执行计划，您点击“批准”后我才会正式动工。", tag: "lark_md" }
+                    text: { content: "💡 **如何开始使用？**\n1️⃣ **直接私聊**：您可以直接在此对话框输入指令，无需 @ 机器人。\n2️⃣ **拉我入群**：将我拉入您的项目群，并通过 @我 的方式下达指令。\n3️⃣ **任务审批**：我会先回传执行计划，待您点击“批准”按钮后我将正式动工。", tag: "lark_md" }
                 },
                 { tag: "hr" },
                 { tag: "note", elements: [{ tag: "plain_text", content: `上线时间: ${info.time} | 任务隔离: 已开启` }] }
@@ -160,7 +160,7 @@ export class FeishuBot extends BaseBot {
     private createOfflineCard() {
         const info = this.getStatusInfo();
         return {
-            config: { wide_screen_mode: true },
+            config: { wide_screen_mode: true, update_multi: true },
             header: { title: { content: "📴 AgentSocial 已下线", tag: "plain_text" }, template: "grey" },
             elements: [
                 { tag: "div", text: { content: `**机器人:** ${this.botName || this.appId}\n**项目:** ${info.projectName}`, tag: "lark_md" } },
@@ -172,7 +172,7 @@ export class FeishuBot extends BaseBot {
     private createOperatedCard(title: string, content: string, status: string, template: string = 'grey') {
         const safeContent = content.length > 800 ? content.substring(0, 797) + '...' : content;
         return {
-            config: { wide_screen_mode: true },
+            config: { wide_screen_mode: true, update_multi: true },
             header: {
                 title: { content: title, tag: "plain_text" },
                 template: template
@@ -195,7 +195,7 @@ export class FeishuBot extends BaseBot {
 
     protected async sendApprovalCard(chatId: string, prompt: string): Promise<void> {
         const card = {
-            config: { wide_screen_mode: true },
+            config: { wide_screen_mode: true, update_multi: true },
             header: { title: { content: "⚠️ 敏感操作审批", tag: "plain_text" }, template: "orange" },
             elements: [
                 {
@@ -203,8 +203,20 @@ export class FeishuBot extends BaseBot {
                     text: { content: `**Agent 申请执行以下敏感操作:**`, tag: "lark_md" }
                 },
                 {
-                    tag: "div",
-                    text: { content: `\`\`\`\n${prompt}\n\`\`\``, tag: "lark_md" }
+                    tag: "collapsible_panel",
+                    expanded: true,
+                    header: {
+                        title: {
+                            tag: "plain_text",
+                            content: "🔍 查看操作详情"
+                        }
+                    },
+                    elements: [
+                        {
+                            tag: "div",
+                            text: { content: `\`\`\`\n${prompt}\n\`\`\``, tag: "lark_md" }
+                        }
+                    ]
                 },
                 {
                     tag: "action",
@@ -232,7 +244,7 @@ export class FeishuBot extends BaseBot {
 
     protected async sendPlanCard(chatId: string, originalCmd: string, plan: string): Promise<void> {
         const card = {
-            config: { wide_screen_mode: true },
+            config: { wide_screen_mode: true, update_multi: true },
             header: { title: { content: "📋 执行计划确认", tag: "plain_text" }, template: "blue" },
             elements: [
                 {
@@ -241,8 +253,20 @@ export class FeishuBot extends BaseBot {
                 },
                 { tag: "hr" },
                 {
-                    tag: "div",
-                    text: { content: `💡 **拟定执行计划:**\n${plan}`, tag: "lark_md" }
+                    tag: "collapsible_panel",
+                    expanded: false,
+                    header: {
+                        title: {
+                            tag: "plain_text",
+                            content: "💡 点击查看拟定执行计划"
+                        }
+                    },
+                    elements: [
+                        {
+                            tag: "div",
+                            text: { content: plan, tag: "lark_md" }
+                        }
+                    ]
                 },
                 {
                     tag: "action",
@@ -282,7 +306,7 @@ export class FeishuBot extends BaseBot {
 
     protected async sendResultCard(chatId: string, originalCmd: string, result: string, isSuccess: boolean): Promise<void> {
         const card = {
-            config: { wide_screen_mode: true },
+            config: { wide_screen_mode: true, update_multi: true },
             header: { 
                 title: { content: isSuccess ? "✅ 任务执行成功" : "❌ 任务执行失败", tag: "plain_text" }, 
                 template: isSuccess ? "green" : "red" 
@@ -293,12 +317,24 @@ export class FeishuBot extends BaseBot {
                     text: { content: `🔍 **目标:** ${originalCmd}`, tag: "lark_md" }
                 },
                 { tag: "hr" },
-                { 
-                    tag: "div", 
-                    text: { 
-                        content: `📑 **执行输出:**\n${result.length > 2500 ? result.substring(0, 2400) + "\n\n... (内容过长已截断)" : result}`, 
-                        tag: "lark_md" 
-                    } 
+                {
+                    tag: "collapsible_panel",
+                    expanded: isSuccess ? false : true,
+                    header: {
+                        title: {
+                            tag: "plain_text",
+                            content: isSuccess ? "✅ 查看执行输出详情" : "❌ 查看错误详情"
+                        }
+                    },
+                    elements: [
+                        {
+                            tag: "div",
+                            text: { 
+                                content: result.length > 2500 ? result.substring(0, 2400) + "\n\n... (内容过长已截断)" : result, 
+                                tag: "lark_md" 
+                            }
+                        }
+                    ]
                 },
                 { tag: "hr" },
                 {

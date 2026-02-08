@@ -78,7 +78,7 @@ async function main() {
     // 打印最终状态表格
     Dashboard.printTable(appsWithStatus);
 
-    if (appsWithStatus.some(a => a.status === 'online')) {
+    if (appsWithStatus.some((a: any) => a.status === 'online')) {
         console.log(chalk.bold.green('✨ 机器人启动成功！你现在应该能在飞书接收到机器人的上线通知卡片。\n'));
     }
 
@@ -135,7 +135,6 @@ Commands:
     process.exit(0);
 }
 
-// ... runConfigWizard (省略以节省长度，逻辑保持不变) ...
 async function runConfigWizard(): Promise<any> {
     const agents = [
         { id: 'gemini', name: 'Google Gemini CLI', check: 'gemini --version' },
@@ -167,6 +166,26 @@ async function runConfigWizard(): Promise<any> {
     const appId = await ask("App ID: ");
     const appSecret = await ask("App Secret: ");
 
+    console.log(chalk.bold.yellow('\n🚧 请前往飞书开发者后台完成以下关键配置：'));
+    console.log(chalk.cyan('------------------------------------------------------------'));
+    console.log(chalk.white('1. 启用机器人能力：'));
+    console.log('   - 在左侧菜单选择“应用功能” -> “机器人”，点击“启用机器人”。');
+    console.log(chalk.white('\n2. 权限管理 (必须开启以下 6 项 Scopes)：'));
+    console.log('   - 接收消息内容 (im:message:readonly)');
+    console.log('   - 读取单聊消息 (im:message.p2p_msg:readonly)');
+    console.log('   - 接收群聊中 @机器人消息 (im:message.group_at_msg:readonly)');
+    console.log('   - 以机器人身份发送消息 (im:message:send_as_bot)');
+    console.log('   - 获取群组信息 (im:chat:readonly)');
+    console.log('   - 获取通讯录基本信息 (contact:contact.base:readonly)');
+    console.log(chalk.white('\n2. 事件订阅与回调配置 (Events & Callbacks)：'));
+    console.log('   - 事件订阅：添加 接收消息 (im.message.receive_v1)');
+    console.log('   - 回调配置：启用 消息卡片操作 (card.action.trigger)');
+    console.log(chalk.gray('     *注：本项目使用 WebSocket 长连接模式，无需在后台填写具体的请求网址。'));
+    console.log(chalk.white('\n3. 记得发布一个新版本，权限和事件才会正式生效！'));
+    console.log(chalk.cyan('------------------------------------------------------------'));
+
+    await ask(chalk.bold.cyan('\n👉 请在后台完成上述配置后，按 [Enter] 键开始实时校验...'));
+
     console.log(chalk.cyan("\n🔍 正在校验飞书配置..."));
     const api = new FeishuAPI(appId.trim(), appSecret.trim());
     const report = await api.diagnose();
@@ -195,7 +214,7 @@ async function runConfigWizard(): Promise<any> {
     };
 }
 
-if (args.includes('setup') || args.includes('register')) {
+if (args.includes('setup')) {
     (async () => {
         const targetPath = path.join(process.cwd(), 'config.json');
         let configArray = fs.existsSync(targetPath) ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : [];
@@ -205,21 +224,21 @@ if (args.includes('setup') || args.includes('register')) {
         
         console.log(chalk.bold.green('\n✅ 配置完成！配置已保存到 config.json'));
         console.log(chalk.cyan('------------------------------------------------------------'));
-        console.log(chalk.bold.white('🚩 请前往飞书开发者后台 (open.feishu.cn) 完成以下关键配置：'));
-        console.log(chalk.yellow('\n1. 权限管理 (Scopes)：'));
-        console.log('   - [必选] 接收消息内容 (im:message:readonly)');
-        console.log('   - [必选] 读取单聊消息 (im:message.p2p_msg:readonly)');
-        console.log('   - [必选] 接收群聊中 @机器人消息 (im:message.group_at_msg:readonly)');
-        console.log('   - [必选] 以机器人身份发送消息 (im:message:send_as_bot)');
-        console.log('   - [必选] 获取群组信息 (im:chat:readonly) - 用于获取机器人所在的群组');
-        console.log('   - [必选] 获取通讯录基本信息 (contact:contact.base:readonly) - 用于全量上线通知');
-        console.log(chalk.yellow('\n2. 事件订阅与回调 (Events & Callbacks)：'));
-        console.log('   - 在“事件订阅”中添加：接收消息 (im.message.receive_v1)');
-        console.log('   - 在“事件订阅”或“机器人”设置中确认已订阅：消息卡片操作 (card.action.trigger)');
-        console.log(chalk.gray('     *注：使用 WebSocket 模式无需填写具体的回调 URL，只需开启事件即可。'));
-        console.log(chalk.yellow('\n3. 激活应用：'));
-        console.log('   - 在“应用发布”中创建一个版本并审核通过（自建应用可秒过）。');
-        console.log('   - 确保“机器人”功能已在应用功能中开启。');
+        console.log(chalk.bold.white('🚩 最终配置复核清单：'));
+        console.log(chalk.yellow('\n1. 开启机器人能力：'));
+        console.log('   - 确保在“应用功能” -> “机器人”中已点击“启用机器人”。');
+        console.log(chalk.yellow('\n2. 权限管理 (必须开启以下 6 项 Scopes)：'));
+        console.log('   - 接收消息内容 (im:message:readonly)');
+        console.log('   - 读取单聊消息 (im:message.p2p_msg:readonly)');
+        console.log('   - 接收群聊中 @机器人消息 (im:message.group_at_msg:readonly)');
+        console.log('   - 以机器人身份发送消息 (im:message:send_as_bot)');
+        console.log('   - 获取群组信息 (im:chat:readonly)');
+        console.log('   - 获取通讯录基本信息 (contact:contact.base:readonly)');
+        console.log(chalk.yellow('\n2. 事件订阅与回调 (必须配置项)：'));
+        console.log('   - 事件订阅：添加 接收消息 (im.message.receive_v1)');
+        console.log('   - 回调配置：启用 消息卡片操作 (card.action.trigger)');
+        console.log(chalk.yellow('\n3. 发布应用：'));
+        console.log('   - 必须发布一个新版本，上述所有权限和事件才会正式生效！');
         console.log(chalk.cyan('------------------------------------------------------------'));
         process.exit(0);
     })();

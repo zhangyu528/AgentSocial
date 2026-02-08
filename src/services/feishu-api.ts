@@ -95,7 +95,7 @@ export class FeishuAPI {
     }
 
     /**
-     * Probes current permissions and connectivity
+     * Probes current permissions and connectivity, matching the setup checklist
      */
     async diagnose(): Promise<{ name: string, status: boolean, error?: string, hint?: string }[]> {
         const report = [];
@@ -103,46 +103,57 @@ export class FeishuAPI {
         // 1. Auth & Bot Identity
         try {
             const info = await this.getBotInfo();
-            report.push({ name: `Credentials (${info.app_name})`, status: true });
+            report.push({ name: `机器人能力 (${info.app_name})`, status: true });
         } catch (e: any) {
+            const isBotDisabled = e.message.includes('bot') || e.message.includes('99991663');
             report.push({ 
-                name: 'Credentials', 
+                name: '机器人能力 (Bot Capability)', 
                 status: false, 
                 error: e.message,
-                hint: 'Check if App ID and App Secret are correct.'
+                hint: isBotDisabled 
+                    ? '请确保在飞书后台“应用功能”->“机器人”中已启用机器人。' 
+                    : '请检查 App ID 和 App Secret 是否填写正确，并确保已发布应用版本。'
             });
-            return report;
+            return report; // Cannot proceed without valid credentials
         }
 
-        // 2. Scope: Chat List
+        // 2. Scope: Message Read (Try to probe im:message:readonly)
+        try {
+            // Note: Using a non-existent chat_id often returns 404 if permission exists, 
+            // but 403/Forbidden if permission is missing.
+            await this.getMessages('oc_probe_id', 1);
+            report.push({ name: '权限: 接收消息内容 (im:message:readonly)', status: true });
+        } catch (e: any) {
+            const isDenied = e.message.includes('permission') || e.message.includes('403') || e.message.includes('Forbidden');
+            report.push({ 
+                name: '权限: 接收消息内容 (im:message:readonly)', 
+                status: !isDenied, 
+                hint: isDenied ? '请在“权限管理”开启并在“版本发布”中生效。' : undefined
+            });
+        }
+
+        // 3. Scope: Chat List (im:chat:readonly)
         try {
             await this.getJoinedChats(1);
-            report.push({ name: 'Scope: im:chat:readonly', status: true });
+            report.push({ name: '权限: 获取群组信息 (im:chat:readonly)', status: true });
         } catch (e: any) {
             report.push({ 
-                name: 'Scope: im:chat:readonly', 
+                name: '权限: 获取群组信息 (im:chat:readonly)', 
                 status: false, 
-                error: 'Denied',
-                hint: 'Go to "Permission Management" and enable "View group information".'
+                hint: '请在“权限管理”开启“获取群组信息”并在“版本发布”中生效。'
             });
         }
 
-        // 3. Scope: Sending Messages (Simple check via error codes if possible)
+        // 4. Scope: Contact List (contact:contact.base:readonly)
         try {
-            // Try to list messages (requires im:message:readonly)
-            await this.getMessages('dummy_id', 1);
-            report.push({ name: 'Scope: im:message:readonly', status: true });
+            await this.getUsers(1);
+            report.push({ name: '权限: 获取通讯录信息 (contact:contact.base:readonly)', status: true });
         } catch (e: any) {
-            if (e.message.includes('permission')) {
-                report.push({ 
-                    name: 'Scope: im:message:readonly', 
-                    status: false, 
-                    hint: 'Go to "Permission Management" and enable "Receive message content".'
-                });
-            } else {
-                // If it's just "chat not found", the permission is likely there
-                report.push({ name: 'Scope: im:message:readonly', status: true });
-            }
+            report.push({ 
+                name: '权限: 获取通讯录信息 (contact:contact.base:readonly)', 
+                status: false, 
+                hint: '请在“权限管理”开启“获取通讯录基本信息”并在“版本发布”中生效。'
+            });
         }
 
         return report;

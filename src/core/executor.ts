@@ -107,10 +107,10 @@ export class GeminiExecutor extends BaseExecutor {
 
         return new Promise((resolve) => {
             const child = spawn(cmd, {
-                cwd: workspace, // Run inside the session workspace to keep memory isolated
+                cwd: options.projectRoot, // 必须在项目根目录运行，否则 Agent 无法找到文件
                 env: { 
                     ...process.env, 
-                    // Direct the agent to store all state and history inside our sessions folder
+                    // 依然将历史记录和配置隔离在 session 目录中
                     GEMINI_CLI_HOME: workspace 
                 },
                 shell: true
