@@ -107,12 +107,22 @@ function checkDependencies(appConfigs: any[]) {
     
     for (const agent of agentsToCheck) {
         try {
+            // Check installation
             const cmd = agent === 'claude' ? 'claude --version' : 
                         agent === 'codex' ? 'codex --version' : 'gemini --version';
             const version = execSync(cmd, { encoding: 'utf8', stdio: 'pipe' }).trim();
-            console.log(`[Check] ${agent} CLI found: ${version.substring(0, 20)}...`);
+            
+            // Check login status for Gemini
+            if (agent === 'gemini') {
+                execSync('gemini --list-sessions', { stdio: 'ignore' });
+            }
+            
+            console.log(`[Check] ${agent} CLI found and authenticated: ${version.substring(0, 20)}...`);
         } catch (e) {
-            console.error(`\n❌ Error: Required agent '${agent}' is not installed.`);
+            console.error(`\n❌ Error: Required agent '${agent}' is not installed or not authenticated.`);
+            if (agent === 'gemini') {
+                console.error(`   👉 Please run 'gemini' in your terminal and complete login.`);
+            }
             missingAny = true;
         }
     }
@@ -137,7 +147,7 @@ Commands:
 
 async function runConfigWizard(): Promise<any> {
     const agents = [
-        { id: 'gemini', name: 'Google Gemini CLI', check: 'gemini --version' },
+        { id: 'gemini', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions' },
         { id: 'claude', name: 'Claude Code', check: 'claude --version' },
         { id: 'codex', name: 'Codex CLI', check: 'codex --version' }
     ];
@@ -156,7 +166,22 @@ async function runConfigWizard(): Promise<any> {
     console.log("\nSelect an agent:");
     installedAgents.forEach((a, i) => console.log(`  ${i + 1}. ${a.name}`));
     const answer = await ask("Enter number [1]: ");
-    const agent = installedAgents[parseInt(answer) - 1]?.id || installedAgents[0].id;
+    const selectedAgent = installedAgents[parseInt(answer) - 1] || installedAgents[0];
+    const agent = selectedAgent.id;
+
+    // Login status check (Option A)
+    if (selectedAgent.loginCheck) {
+        process.stdout.write(chalk.cyan(`🔍 Checking login status for ${selectedAgent.name}... `));
+        try {
+            execSync(selectedAgent.loginCheck, { stdio: 'ignore' });
+            console.log(chalk.green("Logged in."));
+        } catch (e) {
+            console.log(chalk.red("Not logged in."));
+            console.error(chalk.red(`\n❌ Error: ${selectedAgent.name} requires authentication.`));
+            console.log(chalk.yellow(`👉 Please run '${agent}' in your terminal to login first.`));
+            process.exit(1);
+        }
+    }
 
     console.log("\n--- Project & Feishu Config ---");
     const currentDir = process.cwd();
