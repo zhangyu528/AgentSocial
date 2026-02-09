@@ -22,7 +22,7 @@ async function main() {
 
     if (!fs.existsSync(configPath)) {
         console.error(chalk.red("❌ No config.json found."));
-        console.error("👉 Run 'agent-social setup' to get started.");
+        console.error("👉 Run 'agentsocial setup' to get started.");
         process.exit(1);
     }
 
@@ -137,7 +137,7 @@ const args = process.argv.slice(2);
 
 if (args.includes('--help') || args.includes('-h')) {
     console.log(`
-Usage: agent-social [command]
+Usage: agentsocial [command]
 
 Commands:
   setup         Configure and verify a new App/Agent

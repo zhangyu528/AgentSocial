@@ -34,7 +34,7 @@ AgentSocial 旨在为本地运行的 AI 编程 Agent（如 Google Gemini CLI, Cl
 *   **依赖检查**: 启动时若缺少关键依赖（如 Node.js 版本过低），应报错并终止。
 
 #### FR-02: 交互式配置向导 (`setup`)
-*   **输入**: 用户运行 `agent-social setup`。
+*   **输入**: 用户运行 `agentsocial setup`。
 *   **流程**:
     1.  **欢迎界面**: 展示品牌 Banner 及项目简介。
     2.  **AI 核心选择**: 选择目标 Agent 引擎（当前固定为 Gemini CLI，其他置灰）。
