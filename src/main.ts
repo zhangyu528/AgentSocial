@@ -49,7 +49,7 @@ async function main() {
     for (let i = 0; i < appConfigs.length; i++) {
         const config = appConfigs[i];
         const platform = config.platform || 'feishu';
-        const agentType = config.agent_type || 'gemini';
+        const agentType = config.agent_type || 'gemini cli';
         
         const executor = ExecutorFactory.create(agentType, rootDir);
         
@@ -82,10 +82,10 @@ async function main() {
         console.log(chalk.bold.green('✨ 机器人启动成功！你现在应该能在飞书接收到机器人的上线通知卡片。\n'));
     }
 
-    console.log(chalk.bold.yellow('👉 下一步操作：'));
-    console.log(chalk.white('   1. 在飞书管理后台确保机器人功能已开启。'));
-    console.log(chalk.white('   2. 将机器人拉入飞书群组。'));
-    console.log(chalk.white('   3. 在群里 @机器人 并发送指令（如：帮我写个 README）。\n'));
+    console.log(chalk.bold.yellow('👉 如何开始使用：'));
+    console.log(chalk.white('   1. 直接私聊：您可以直接在此对话框输入指令，无需 @ 机器人。'));
+    console.log(chalk.white('   2. 拉我入群：将我拉入您的项目群，并通过 @我 的方式下达指令。'));
+    console.log(chalk.white('   3. 任务审批：我会先回传执行计划，待您点击“批准”按钮后我将正式动工。\n'));
 
     const cleanup = async () => {
         console.log("\nShutting down AgentSocial...");
@@ -102,25 +102,26 @@ async function main() {
 // ---------------------------------------------------------
 
 function checkDependencies(appConfigs: any[]) {
-    const agentsToCheck = new Set(appConfigs.map(c => c.agent_type || 'gemini'));
+    const agentsToCheck = new Set(appConfigs.map(c => c.agent_type || 'gemini cli'));
     let missingAny = false;
     
     for (const agent of agentsToCheck) {
         try {
             // Check installation
-            const cmd = agent === 'claude' ? 'claude --version' : 
+            const cmd = agent === 'gemini cli' ? 'gemini --version' : 
+                        agent === 'claude' ? 'claude --version' : 
                         agent === 'codex' ? 'codex --version' : 'gemini --version';
             const version = execSync(cmd, { encoding: 'utf8', stdio: 'pipe' }).trim();
             
             // Check login status for Gemini
-            if (agent === 'gemini') {
+            if (agent === 'gemini cli') {
                 execSync('gemini --list-sessions', { stdio: 'ignore' });
             }
             
             console.log(`[Check] ${agent} CLI found and authenticated: ${version.substring(0, 20)}...`);
         } catch (e) {
             console.error(`\n❌ Error: Required agent '${agent}' is not installed or not authenticated.`);
-            if (agent === 'gemini') {
+            if (agent === 'gemini cli') {
                 console.error(`   👉 Please run 'gemini' in your terminal and complete login.`);
             }
             missingAny = true;
@@ -158,7 +159,7 @@ async function runConfigWizard(): Promise<any> {
     `));
 
     const agents = [
-        { id: 'gemini', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions', available: true, desc: 'Advanced reasoning & tool use' },
+        { id: 'gemini cli', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions', available: true, desc: 'Advanced reasoning & tool use' },
         { id: 'claude', name: 'Claude Code', check: '', available: false, desc: 'Coming soon...' },
         { id: 'codex', name: 'Codex CLI', check: '', available: false, desc: 'Coming soon...' }
     ];

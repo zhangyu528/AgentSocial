@@ -1,0 +1,16 @@
+# Sensitive Configuration
+config.json
+.env
+
+# Execution Artifacts & Logs
+sessions/
+*.log
+*.err
+.state.json
+
+# Build & Dependencies
+dist/
+node_modules/
+
+# OS Metadata
+.DS_Store

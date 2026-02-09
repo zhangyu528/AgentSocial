@@ -30,7 +30,7 @@ export abstract class BaseBot {
     protected getStatusInfo() {
         return {
             projectName: path.basename(this.projectRoot),
-            agentType: this.config.agent_type || 'gemini',
+            agentType: this.config.agent_type || 'gemini cli',
             time: new Date().toLocaleString()
         };
     }

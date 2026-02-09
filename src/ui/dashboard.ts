@@ -33,7 +33,7 @@ export class Dashboard {
             table.push([
                 platformName,
                 chalk.gray(app.app_id.substring(0, 12) + '...'),
-                chalk.magenta(app.agent_type || 'gemini'),
+                chalk.magenta(app.agent_type || 'gemini cli'),
                 chalk.cyan(projectName),
                 statusStr
             ]);
