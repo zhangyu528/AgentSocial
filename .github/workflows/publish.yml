@@ -1,0 +1,52 @@
+name: Publish to GitHub Packages
+
+on:
+  release:
+    types: [created] # 当你在 GitHub 页面上创建一个新的 Release 时，自动触发发布
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # 必须：赋予写入包的权限
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # 设置目标注册表为 GitHub
+          registry-url: 'https://npm.pkg.github.com'
+          # 自动获取当前仓库的所有者（用户名或组织名）
+          scope: '@${{ github.repository_owner }}'
+
+            - name: Install dependencies
+
+              run: npm ci
+
+      
+
+            - name: Run Linting
+
+              run: npm run lint
+
+      
+
+            - name: Build Project
+
+              run: npm run build
+
+      
+
+            - name: Publish to GitHub Packages
+
+              run: npm publish
+
+              env:
+
+                NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      
