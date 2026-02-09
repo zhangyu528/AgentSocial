@@ -146,32 +146,68 @@ Commands:
 }
 
 async function runConfigWizard(): Promise<any> {
+    console.clear();
+    console.log(chalk.cyan.bold(`
+    ╔════════════════════════════════════════════════════════════╗
+    ║                                                            ║
+    ║                🚀 Welcome to AgentSocial                   ║
+    ║                                                            ║
+    ║      Give your AI Agents a Social Identity on Feishu       ║
+    ║                                                            ║
+    ╚════════════════════════════════════════════════════════════╝
+    `));
+
     const agents = [
-        { id: 'gemini', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions' },
-        { id: 'claude', name: 'Claude Code', check: 'claude --version' },
-        { id: 'codex', name: 'Codex CLI', check: 'codex --version' }
+        { id: 'gemini', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions', available: true, desc: 'Advanced reasoning & tool use' },
+        { id: 'claude', name: 'Claude Code', check: '', available: false, desc: 'Coming soon...' },
+        { id: 'codex', name: 'Codex CLI', check: '', available: false, desc: 'Coming soon...' }
     ];
-    const installedAgents = agents.filter(a => {
-        try { execSync(a.check, { stdio: 'ignore' }); return true; } catch (e) { return false; }
-    });
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const ask = (q: string) => new Promise<string>(r => rl.question(q, r));
 
-    if (installedAgents.length === 0) {
-        console.error("\n❌ No compatible CLI agents detected!");
+    console.log(chalk.bold.white(" 🤖 Select your AI Core:"));
+    console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
+    
+    agents.forEach((a, i) => {
+        const index = i + 1;
+        if (a.available) {
+            console.log(`  ${chalk.green.bold(index + '.')} ${chalk.white.bold(a.name.padEnd(25))} ${chalk.dim('│')} ${chalk.green(a.desc)}`);
+        } else {
+            console.log(chalk.gray(`  ${index}. ${a.name.padEnd(25)} ${chalk.dim('│')} ${a.desc}`));
+        }
+    });
+    console.log(chalk.gray(" ────────────────────────────────────────────────────────────\n"));
+
+    let selectedAgent = agents[0];
+    const answer = await ask(chalk.bold.cyan(" ⌨️  Select agent [1]: "));
+    const choice = parseInt(answer);
+
+    if (choice > 1 && choice <= agents.length) {
+        console.log(chalk.yellow(`\n⚠️  Agent '${agents[choice-1].name}' is not yet available. Defaulting to Gemini.`));
+    }
+    
+    // Always force Gemini for now as requested
+    selectedAgent = agents[0];
+    const agent = selectedAgent.id;
+
+    console.log(chalk.cyan(`\n 🔍 Initializing ${selectedAgent.name}...`));
+
+    // Verify if Gemini is installed
+    try {
+        process.stdout.write(chalk.dim("    • Checking installation... "));
+        execSync(selectedAgent.check, { stdio: 'ignore' });
+        console.log(chalk.green("OK"));
+    } catch (e) {
+        console.log(chalk.red("Failed"));
+        console.error(chalk.red(`\n❌ Error: ${selectedAgent.name} (Gemini CLI) is not installed!`));
+        console.log(chalk.yellow("👉 Please install it first: npm install -g @google/gemini-cli"));
         process.exit(1);
     }
 
-    console.log("\nSelect an agent:");
-    installedAgents.forEach((a, i) => console.log(`  ${i + 1}. ${a.name}`));
-    const answer = await ask("Enter number [1]: ");
-    const selectedAgent = installedAgents[parseInt(answer) - 1] || installedAgents[0];
-    const agent = selectedAgent.id;
-
     // Login status check (Option A)
     if (selectedAgent.loginCheck) {
-        process.stdout.write(chalk.cyan(`🔍 Checking login status for ${selectedAgent.name}... `));
+        process.stdout.write(chalk.dim(`    • Checking authentication... `));
         try {
             execSync(selectedAgent.loginCheck, { stdio: 'ignore' });
             console.log(chalk.green("Logged in."));
@@ -183,45 +219,67 @@ async function runConfigWizard(): Promise<any> {
         }
     }
 
-    console.log("\n--- Project & Feishu Config ---");
+    console.log(chalk.bold.white("\n ⚙️  Project & Feishu Credentials:"));
+    console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
+    
     const currentDir = process.cwd();
-    const projectPathInput = await ask(`Project path (default: ${currentDir}): `);
+    const projectPathInput = await ask(chalk.white(`   📂 Project path (default: ${currentDir}): `));
     const projectPath = projectPathInput.trim() || currentDir;
 
-    const appId = await ask("App ID: ");
-    const appSecret = await ask("App Secret: ");
+    const appId = await ask(chalk.white("   🆔 App ID: "));
+    const appSecret = await ask(chalk.white("   🔑 App Secret: "));
+    console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
 
-    console.log(chalk.bold.yellow('\n🚧 请前往飞书开发者后台完成以下关键配置：'));
-    console.log(chalk.cyan('------------------------------------------------------------'));
-    console.log(chalk.white('1. 启用机器人能力：'));
-    console.log('   - 在左侧菜单选择“应用功能” -> “机器人”，点击“启用机器人”。');
-    console.log(chalk.white('\n2. 权限管理 (必须开启以下 6 项 Scopes)：'));
-    console.log('   - 接收消息内容 (im:message:readonly)');
-    console.log('   - 读取单聊消息 (im:message.p2p_msg:readonly)');
-    console.log('   - 接收群聊中 @机器人消息 (im:message.group_at_msg:readonly)');
-    console.log('   - 以机器人身份发送消息 (im:message:send_as_bot)');
-    console.log('   - 获取群组信息 (im:chat:readonly)');
-    console.log('   - 获取通讯录基本信息 (contact:contact.base:readonly)');
-    console.log(chalk.white('\n2. 事件订阅与回调配置 (Events & Callbacks)：'));
-    console.log('   - 事件订阅：添加 接收消息 (im.message.receive_v1)');
-    console.log('   - 回调配置：启用 消息卡片操作 (card.action.trigger)');
-    console.log(chalk.gray('     *注：本项目使用 WebSocket 长连接模式，无需在后台填写具体的请求网址。'));
-    console.log(chalk.white('\n3. 记得发布一个新版本，权限和事件才会正式生效！'));
-    console.log(chalk.cyan('------------------------------------------------------------'));
+    console.log(chalk.bold.yellow('\n 🚧 Action Required: Configure Feishu Developer Console'));
+    console.log(chalk.gray(' ────────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  1. Enable Bot Capability:'));
+    console.log(chalk.dim('     • Navigate to "App Capabilities" -> "Bot"'));
+    console.log(chalk.dim('     • Click "Enable Bot"'));
 
-    await ask(chalk.bold.cyan('\n👉 请在后台完成上述配置后，按 [Enter] 键开始实时校验...'));
+    console.log(chalk.white.bold('\n  2. Permission Management (Required Scopes):'));
+    console.log(chalk.dim('     • 获取单聊、群组消息 (im:message:readonly)'));
+    console.log(chalk.dim('     • 读取用户发给机器人的单聊消息 (im:message.p2p_msg:readonly)'));
+    console.log(chalk.dim('     • 接收群聊中@机器人消息事件 (im:message.group_at_msg:readonly)'));
+    console.log(chalk.dim('     • 以应用的身份发送消息 (im:message:send_as_bot)'));
+    console.log(chalk.dim('     • 获取应用信息 (admin:app.info:readonly)'));
+    console.log(chalk.dim('     • 获取群组信息 (im:chat:readonly)'));
 
-    console.log(chalk.cyan("\n🔍 正在校验飞书配置..."));
+    console.log(chalk.white.bold('\n  3. Events & Callbacks:'));
+    console.log(chalk.dim('     • Events: Add "Receive Message" (im.message.receive_v1)'));
+    console.log(chalk.dim('     • Callbacks: Enable "Card Action" (card.action.trigger)'));
+    console.log(chalk.italic.gray('       * Note: WebSocket mode is used; no request URL is needed.'));
+
+    console.log(chalk.white.bold('\n  4. Final Step:'));
+    console.log(chalk.dim('     • Create and Publish a new version to apply changes.'));
+    console.log(chalk.gray(' ────────────────────────────────────────────────────────────'));
+
+    await ask(chalk.bold.cyan('\n 👉 Press [Enter] to start verification after you finish the setup... '));
+
+    console.log(chalk.cyan("\n 🔍 Verifying Feishu Configuration..."));
     const api = new FeishuAPI(appId.trim(), appSecret.trim());
     const report = await api.diagnose();
     
-    console.log(chalk.white("------------------------------------------------------------"));
+    console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
     report.forEach(item => {
-        const icon = item.status ? chalk.green("✅") : chalk.red("❌");
-        console.log(`${icon} ${chalk.bold(item.name)}: ${item.status ? 'OK' : chalk.red('Failed')}`);
-        if (!item.status && item.hint) console.log(chalk.gray(`   👉 指引: ${item.hint}`));
+        const icon = item.status ? chalk.green("  ✅") : chalk.red("  ❌");
+        const statusText = item.status ? chalk.green("Passed") : chalk.red("Failed");
+        console.log(`${icon} ${chalk.bold(item.name.padEnd(50))} ${statusText}`);
+        if (!item.status) {
+            if (item.error) console.log(chalk.red(`     └─ Error: ${item.error}`));
+            if (item.hint) console.log(chalk.gray(`     └─ Hint: ${item.hint}`));
+        }
     });
-    console.log(chalk.white("------------------------------------------------------------\n"));
+
+    console.log(chalk.gray(" ────────────────────────────────────────────────────────────\n"));
+
+    console.log(chalk.yellow(" ⚠️  Please manually confirm these (cannot be auto-probed):"));
+    console.log(chalk.dim("   □ 应用可用范围：确保在“权限管理”最下方已设置“全部成员”或指定成员"));
+    console.log(chalk.dim("   □ 事件订阅：确保已添加“接收消息”事件 (im.message.receive_v1)"));
+    console.log(chalk.dim("   □ 回调配置：确保已启用“消息卡片操作”回调 (card.action.trigger)"));
+    console.log(chalk.dim("   □ 读取用户发给机器人的单聊消息 (im:message.p2p_msg:readonly)"));
+    console.log(chalk.dim("   □ 接收群聊中@机器人消息事件 (im:message.group_at_msg:readonly)"));
+    console.log(chalk.dim("   □ 以应用的身份发送消息 (im:message:send_as_bot)"));
+    console.log(chalk.gray(" ────────────────────────────────────────────────────────────\n"));
 
     const isConfirmed = report.every(r => r.status) || (await ask("配置检查未完全通过，是否仍要继续保存？[y/N]: ")).toLowerCase() === 'y';
     if (!isConfirmed) {
@@ -247,24 +305,8 @@ if (args.includes('setup')) {
         configArray.push(newApp);
         fs.writeFileSync(targetPath, JSON.stringify(configArray, null, 2));
         
-        console.log(chalk.bold.green('\n✅ 配置完成！配置已保存到 config.json'));
-        console.log(chalk.cyan('------------------------------------------------------------'));
-        console.log(chalk.bold.white('🚩 最终配置复核清单：'));
-        console.log(chalk.yellow('\n1. 开启机器人能力：'));
-        console.log('   - 确保在“应用功能” -> “机器人”中已点击“启用机器人”。');
-        console.log(chalk.yellow('\n2. 权限管理 (必须开启以下 6 项 Scopes)：'));
-        console.log('   - 接收消息内容 (im:message:readonly)');
-        console.log('   - 读取单聊消息 (im:message.p2p_msg:readonly)');
-        console.log('   - 接收群聊中 @机器人消息 (im:message.group_at_msg:readonly)');
-        console.log('   - 以机器人身份发送消息 (im:message:send_as_bot)');
-        console.log('   - 获取群组信息 (im:chat:readonly)');
-        console.log('   - 获取通讯录基本信息 (contact:contact.base:readonly)');
-        console.log(chalk.yellow('\n2. 事件订阅与回调 (必须配置项)：'));
-        console.log('   - 事件订阅：添加 接收消息 (im.message.receive_v1)');
-        console.log('   - 回调配置：启用 消息卡片操作 (card.action.trigger)');
-        console.log(chalk.yellow('\n3. 发布应用：'));
-        console.log('   - 必须发布一个新版本，上述所有权限和事件才会正式生效！');
-        console.log(chalk.cyan('------------------------------------------------------------'));
+        console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to config.json'));
+        console.log(chalk.cyan(' 👉 Run "npm run dev" to start your agent.\n'));
         process.exit(0);
     })();
 } else {

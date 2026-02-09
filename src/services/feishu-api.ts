@@ -5,8 +5,10 @@ import * as lark from '@larksuiteoapi/node-sdk';
  */
 export class FeishuAPI {
     private client: any; // Using any because some SDK versions have complex nested types
+    private appId: string;
 
     constructor(appId: string, appSecret: string) {
+        this.appId = appId;
         this.client = new lark.Client({
             appId: appId,
             appSecret: appSecret,
@@ -22,6 +24,26 @@ export class FeishuAPI {
     }
 
     /**
+     * Get Application Info (v6)
+     * Corresponds to permission: admin:app.info:readonly
+     */
+    async getApplicationInfo(): Promise<any> {
+        try {
+            const res = await this.client.request({
+                method: 'GET',
+                url: `/open-apis/application/v6/applications/${this.appId}`,
+                params: {
+                    lang: 'zh_cn'
+                }
+            });
+            return res.data;
+        } catch (error: any) {
+            const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            throw new Error(`[Feishu API Error] ${detail}`);
+        }
+    }
+
+    /**
      * Get Bot info (to get bot's open_id)
      */
     async getBotInfo(): Promise<any> {
@@ -32,7 +54,8 @@ export class FeishuAPI {
             });
             return res.bot;
         } catch (error: any) {
-            throw new Error(`Failed to get bot info: ${error.message}`);
+            const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            throw new Error(`[Feishu API Error] ${detail}`);
         }
     }
 
@@ -72,7 +95,8 @@ export class FeishuAPI {
                 },
             });
         } catch (error: any) {
-            throw new Error(`Failed to send card: ${error.message}`);
+            const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            throw new Error(`Failed to send card to ${receiveId} (${receiveIdType}): ${detail}`);
         }
     }
 
@@ -95,6 +119,71 @@ export class FeishuAPI {
     }
 
     /**
+     * Get App Visibility (v2)
+     * Using the path suggested by user: /open-apis/application/v2/app/visibility
+     */
+    async getAppVisibility(): Promise<any> {
+        try {
+            const res = await this.client.request({
+                method: 'GET',
+                url: `/open-apis/application/v2/app/visibility`,
+                params: {
+                    app_id: this.appId,
+                    user_id_type: 'open_id'
+                }
+            });
+            return res.data;
+        } catch (error: any) {
+            const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            throw new Error(`[Feishu API Error] ${detail}`);
+        }
+    }
+
+    /**
+     * Resolve visibility (departments/users) to a flat list of user IDs
+     */
+    async getVisibleUsers(): Promise<string[]> {
+        try {
+            const visibility = await this.getAppVisibility();
+            if (visibility.is_all) {
+                return ["ALL_MEMBERS"];
+            }
+
+            // Fix for V2 structure: data.users and data.departments
+            const userIds: string[] = (visibility.users || [])
+                .map((u: any) => u.user_id || u.open_id)
+                .filter((id: string) => !!id);
+            
+            const deptIds: string[] = visibility.departments || [];
+
+            for (const deptId of deptIds) {
+                let token = "";
+                do {
+                    const res = await this.client.contact.user.findByDepartment({
+                        params: {
+                            department_id: deptId,
+                            user_id_type: 'open_id',
+                            page_size: 50,
+                            page_token: token,
+                        }
+                    });
+                    const items = res.data?.items || [];
+                    items.forEach((u: any) => {
+                        const id = u.open_id || u.user_id;
+                        if (id) userIds.push(id);
+                    });
+                    token = res.data?.page_token || "";
+                } while (token);
+            }
+
+            return Array.from(new Set(userIds));
+        } catch (error: any) {
+            console.error(`[FeishuAPI] Error resolving visible users: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
      * Probes current permissions and connectivity, matching the setup checklist
      */
     async diagnose(): Promise<{ name: string, status: boolean, error?: string, hint?: string }[]> {
@@ -102,31 +191,26 @@ export class FeishuAPI {
         
         // 1. Auth & Bot Identity
         try {
-            const info = await this.getBotInfo();
-            report.push({ name: `机器人能力 (${info.app_name})`, status: true });
+            await this.getBotInfo();
+            report.push({ name: '机器人能力 (Bot Capability)', status: true });
         } catch (e: any) {
-            const isBotDisabled = e.message.includes('bot') || e.message.includes('99991663');
             report.push({ 
                 name: '机器人能力 (Bot Capability)', 
                 status: false, 
                 error: e.message,
-                hint: isBotDisabled 
-                    ? '请确保在飞书后台“应用功能”->“机器人”中已启用机器人。' 
-                    : '请检查 App ID 和 App Secret 是否填写正确，并确保已发布应用版本。'
+                hint: '请确保在飞书后台“应用功能”->“机器人”中已启用机器人，并发布版本。'
             });
-            return report; // Cannot proceed without valid credentials
+            return report;
         }
 
         // 2. Scope: Message Read (Try to probe im:message:readonly)
         try {
-            // Note: Using a non-existent chat_id often returns 404 if permission exists, 
-            // but 403/Forbidden if permission is missing.
             await this.getMessages('oc_probe_id', 1);
-            report.push({ name: '权限: 接收消息内容 (im:message:readonly)', status: true });
+            report.push({ name: '权限: 获取单聊、群组消息 (im:message:readonly)', status: true });
         } catch (e: any) {
             const isDenied = e.message.includes('permission') || e.message.includes('403') || e.message.includes('Forbidden');
             report.push({ 
-                name: '权限: 接收消息内容 (im:message:readonly)', 
+                name: '权限: 获取单聊、群组消息 (im:message:readonly)', 
                 status: !isDenied, 
                 hint: isDenied ? '请在“权限管理”开启并在“版本发布”中生效。' : undefined
             });
@@ -144,15 +228,16 @@ export class FeishuAPI {
             });
         }
 
-        // 4. Scope: Contact List (contact:contact.base:readonly)
+        // 4. Scope: App Info (Essential for Metadata & Visibility)
         try {
-            await this.getUsers(1);
-            report.push({ name: '权限: 获取通讯录信息 (contact:contact.base:readonly)', status: true });
+            await this.getApplicationInfo();
+            report.push({ name: '权限: 获取应用信息 (admin:app.info:readonly)', status: true });
         } catch (e: any) {
             report.push({ 
-                name: '权限: 获取通讯录信息 (contact:contact.base:readonly)', 
+                name: '权限: 获取应用信息 (admin:app.info:readonly)', 
                 status: false, 
-                hint: '请在“权限管理”开启“获取通讯录基本信息”并在“版本发布”中生效。'
+                error: e.message,
+                hint: '请在“权限管理”开启“获取应用信息”权限并发布版本，以支持成员控制功能。'
             });
         }
 

@@ -9,6 +9,8 @@ export class FeishuBot extends BaseBot {
     private api: FeishuAPI;
     private botOpenId: string | null = null;
     private botName: string | null = null;
+    private visibleUserIds: Set<string> = new Set();
+    private isVisibleToAll: boolean = false;
 
     constructor(config: any, executor: IAgentExecutor, defaultRoot: string) {
         super(config, executor, defaultRoot);
@@ -20,7 +22,7 @@ export class FeishuBot extends BaseBot {
             // 1. 启动状态自检 (Full Health Check)
             Dashboard.logEvent('SYS', `[Feishu] 正在执行启动状态自检...`);
             const report = await this.api.diagnose();
-            const failures = report.filter(r => !r.status);
+            const failures = report.filter(r => !r.status && r.name.includes('机器人能力'));
 
             if (failures.length > 0) {
                 Dashboard.logEvent('ERR', `[Feishu] 启动自检未通过，缺少关键权限：`);
@@ -37,6 +39,22 @@ export class FeishuBot extends BaseBot {
             const botInfo = await this.api.getBotInfo();
             this.botOpenId = botInfo.open_id;
             this.botName = botInfo.app_name;
+
+            // 3. 获取可见范围成员 (用于权限控制和通知)
+            try {
+                const users = await this.api.getVisibleUsers();
+                if (users.includes("ALL_MEMBERS")) {
+                    this.isVisibleToAll = true;
+                    Dashboard.logEvent('SYS', `[Feishu] 应用可见范围: 全员 (权限控制已放开)`);
+                } else {
+                    this.isVisibleToAll = false;
+                    this.visibleUserIds = new Set(users);
+                    Dashboard.logEvent('SYS', `[Feishu] 已加载可见范围成员: ${this.visibleUserIds.size} 人`);
+                }
+            } catch (e: any) {
+                Dashboard.logEvent('SYS', `[Feishu] 无法获取可见范围: ${e.message}。将默认允许所有收到消息的人控制。`);
+                this.isVisibleToAll = true;
+            }
 
             const wsClient = new lark.WSClient({
                 appId: this.config.app_id,
@@ -357,39 +375,31 @@ export class FeishuBot extends BaseBot {
     private async broadcastCard(card: any) {
         try {
             const groupIds = new Set<string>();
-            const userOpenIds = new Set<string>();
 
             // 1. Collect all joined groups (via chat ID)
             let chatToken = "";
             do {
                 const res = await this.api.getJoinedChats(50, chatToken);
                 const items = res.data?.items || [];
-                // Every item in this list is a chat the bot is a member of (mostly groups)
                 items.forEach((c: any) => groupIds.add(c.chat_id));
                 chatToken = res.data?.page_token || "";
             } while (chatToken);
 
-            // 2. Collect all authorized users (via Open ID)
-            let userToken = "";
-            try {
-                do {
-                    const res = await this.api.getUsers(50, userToken);
-                    const items = res.data?.items || [];
-                    items.forEach((u: any) => userOpenIds.add(u.open_id));
-                    userToken = res.data?.page_token || "";
-                } while (userToken);
-            } catch (e: any) {
-                Dashboard.logEvent('ERR', `User broadcast aborted: ${e.message}.`);
+            // 2. Broadcast to groups
+            if (groupIds.size > 0) {
+                Dashboard.logEvent('SYS', `[Feishu] Broadcasting to ${groupIds.size} groups...`);
+                for (const id of groupIds) await this.api.sendCard(id, 'chat_id', card).catch(() => {});
             }
 
-            if (groupIds.size > 0 || userOpenIds.size > 0) {
-                Dashboard.logEvent('SYS', `[Feishu] Broadcasting to ${groupIds.size} groups and ${userOpenIds.size} users...`);
-                
-                // Send to groups
-                for (const id of groupIds) await this.api.sendCard(id, 'chat_id', card).catch(() => {});
-                
-                // Send to users (P2P)
-                for (const id of userOpenIds) await this.api.sendCard(id, 'open_id', card).catch(() => {});
+            // 3. Broadcast to visible users (P2P) - Skip if visible to all to avoid spam
+            if (!this.isVisibleToAll && this.visibleUserIds.size > 0) {
+                Dashboard.logEvent('SYS', `[Feishu] Notifying ${this.visibleUserIds.size} visible members via P2P...`);
+                for (const openId of this.visibleUserIds) {
+                    if (!openId) continue; // Skip invalid IDs
+                    await this.api.sendCard(openId, 'open_id', card)
+                        .then(() => Dashboard.logEvent('SYS', `[Feishu] P2P sent to ${openId.substring(0, 8)}...`))
+                        .catch((e: any) => Dashboard.logEvent('ERR', `[Feishu] P2P failed for ${openId.substring(0, 8)}: ${e.message}`));
+                }
             }
         } catch (e: any) {
             Dashboard.logEvent('ERR', `[Feishu] Broadcast failed: ${e.message}`);
@@ -481,6 +491,25 @@ export class FeishuBot extends BaseBot {
         });
 
         if (isDirect || isMentioned) {
+            // Corrected: sender is a sibling of message in the event data
+            const senderId = data.sender?.sender_id?.open_id || 
+                             data.sender?.id?.open_id || 
+                             data.sender?.open_id;
+
+            if (!senderId) {
+                Dashboard.logEvent('SYS', `[Feishu] Cannot identify sender ID. Raw data.sender: ${JSON.stringify(data.sender)}`);
+                Dashboard.logEvent('SYS', `[Feishu] This message will be ignored to maintain session integrity.`);
+                return;
+            }
+
+            // --- Access Control Check ---
+            if (!this.isVisibleToAll && !this.visibleUserIds.has(senderId)) {
+                Dashboard.logEvent('SYS', `[Feishu] Unauthorized access attempt from ${senderId}`);
+                await this.sendReply(message.chat_id, `🚫 [访问受限] 抱歉，您不在该应用的“可见范围”内，无权操作此 Agent。请联系管理员在飞书后台调整“应用可见范围”配置。`).catch(() => {});
+                return;
+            }
+            // ---------------------------
+
             let content = JSON.parse(message.content).text;
             // Clean mentions
             mentions.forEach((m: any) => {
