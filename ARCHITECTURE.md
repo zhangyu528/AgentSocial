@@ -6,19 +6,21 @@ This document describes the internal workings of AgentSocial and how it manages 
 
 AgentSocial ensures that every chat session (Group or P2P) has a completely isolated environment. This prevents cross-talk between different users or projects.
 
-- **Storage Path**: `sessions/{app_id}/{chat_id}/`
-- **Agent Home**: The `GEMINI_CLI_HOME` (or equivalent) environment variable is set to the session directory.
-- **State Sync**: Upon session initialization, AgentSocial copies global authentication files (like `google_accounts.json`, `installation_id`, etc.) from the user's home directory to the session's `.gemini` folder. This allows the isolated agent to maintain the user's identity while keeping history separate.
+- **Storage Path**: `~/.agentsocial/sessions/{app_id}/{md5(chat_id)}/`
+- **Path Sanitization**: The `chatId` is hashed using MD5 before creating directory paths to prevent Path Traversal attacks.
+- **Agent Home**: The `GEMINI_CLI_HOME` environment variable is strictly routed to the session directory.
+- **Symlink Sync**: Instead of copying, AgentSocial uses **symbolic links** to share global auth files (`google_accounts.json`, etc.) from `~/.gemini/`. This ensures a single source of truth for credentials and prevents credential sprawl. 
+- **Security Fallback**: On platforms where symlinks may fail (e.g., Windows without admin rights), it falls back to copying with strict OS-level permissions (`0o600`).
 
 ## 2. Two-Stage Execution Pipeline
 
 To ensure safety and predictability, AgentSocial implements a two-stage pipeline for all incoming commands.
 
 ### Stage 1: Planning (`plan` mode)
-- **Goal**: Understand the user's intent and propose a set of actions without executing them.
-- **Command Injection**: AgentSocial appends a suffix to the user's prompt: `(Please only output a detailed execution plan text. Do not execute any tools yet.)`.
-- **Approval Mode**: The agent is run with `--approval-mode default` (or similar strict mode) to prevent accidental tool execution during the planning phase.
-- **Outcome**: The agent's output is captured and sent back to the user as a "Plan Confirmation" card.
+- **Goal**: Analyze the project and propose a plan without any ability to modify the filesystem.
+- **Native Sandboxing**: The agent is executed with `--approval-mode plan`. This is a CLI-level **Hard Read-Only Sandbox** that strips all write-access tools from the model.
+- **Prompt Isolation**: AgentSocial reinforces this with a prompt suffix: `(Please only output a detailed execution plan text. Do not execute any tools yet.)`.
+- **Outcome**: Captured output is sent as an interactive "Plan Confirmation" card.
 
 ### Stage 2: Execution (`auto` mode)
 - **Goal**: Execute the confirmed plan autonomously.
@@ -41,3 +43,10 @@ When a bot starts, it executes a silent "Pre-warm" task:
 `gemini --include-directories "." -p "list the project root files briefly"`
 
 This forces the underlying Agent to index the current project, so the first user command is processed much faster.
+
+## 5. Security Hardening
+
+- **Global Secret Storage**: All sensitive credentials (Feishu app secrets) are stored in `~/.agentsocial/settings.json`, removing them from the project repository.
+- **Command Injection Prevention**: All CLI commands are executed via array-based `spawn` arguments with `shell: false`, treating user input as literal text rather than shell instructions.
+- **Fail-Closed Access**: Access control defaults to restricted mode if API calls to the authorization service fail.
+- **macOS Compatibility**: Automatic handling of platform-specific binary wrappers (like `.cmd` on Windows) ensures clean execution across environments.
