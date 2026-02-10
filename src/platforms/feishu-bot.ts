@@ -52,8 +52,8 @@ export class FeishuBot extends BaseBot {
                     Dashboard.logEvent('SYS', `[Feishu] 已加载可见范围成员: ${this.visibleUserIds.size} 人`);
                 }
             } catch (e: any) {
-                Dashboard.logEvent('SYS', `[Feishu] 无法获取可见范围: ${e.message}。将默认允许所有收到消息的人控制。`);
-                this.isVisibleToAll = true;
+                Dashboard.logEvent('ERR', `[Feishu] 无法获取可见范围: ${e.message}。出于安全考虑,将限制访问。`);
+                this.isVisibleToAll = false;
             }
 
             const wsClient = new lark.WSClient({
@@ -128,7 +128,7 @@ export class FeishuBot extends BaseBot {
                 await this.queue.enqueue(
                     this.appId,
                     'internal-prewarm',
-                    'list the project root files briefly', 
+                    'list the project root files briefly',
                     this.projectRoot,
                     'plan',
                     undefined,
@@ -325,9 +325,9 @@ export class FeishuBot extends BaseBot {
     protected async sendResultCard(chatId: string, originalCmd: string, result: string, isSuccess: boolean): Promise<void> {
         const card = {
             config: { wide_screen_mode: true, update_multi: true },
-            header: { 
-                title: { content: isSuccess ? "✅ 任务执行成功" : "❌ 任务执行失败", tag: "plain_text" }, 
-                template: isSuccess ? "green" : "red" 
+            header: {
+                title: { content: isSuccess ? "✅ 任务执行成功" : "❌ 任务执行失败", tag: "plain_text" },
+                template: isSuccess ? "green" : "red"
             },
             elements: [
                 {
@@ -347,9 +347,9 @@ export class FeishuBot extends BaseBot {
                     elements: [
                         {
                             tag: "div",
-                            text: { 
-                                content: result.length > 2500 ? result.substring(0, 2400) + "\n\n... (内容过长已截断)" : result, 
-                                tag: "lark_md" 
+                            text: {
+                                content: result.length > 2500 ? result.substring(0, 2400) + "\n\n... (内容过长已截断)" : result,
+                                tag: "lark_md"
                             }
                         }
                     ]
@@ -388,7 +388,7 @@ export class FeishuBot extends BaseBot {
             // 2. Broadcast to groups
             if (groupIds.size > 0) {
                 Dashboard.logEvent('SYS', `[Feishu] Broadcasting to ${groupIds.size} groups...`);
-                for (const id of groupIds) await this.api.sendCard(id, 'chat_id', card).catch(() => {});
+                for (const id of groupIds) await this.api.sendCard(id, 'chat_id', card).catch(() => { });
             }
 
             // 3. Broadcast to visible users (P2P) - Skip if visible to all to avoid spam
@@ -457,7 +457,7 @@ export class FeishuBot extends BaseBot {
 
             const cleanOutput = result.stdout.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{4,4}g|(?:\d{1,4}(?:;\d{0,4})*)?[0-9,A-PR-Zcf-nqry=><])/g, '').trim();
             const errorOutput = result.stderr.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{4,4}g|(?:\d{1,4}(?:;\d{0,4})*)?[0-9,A-PR-Zcf-nqry=><])/g, '').trim();
-            
+
             const isSuccess = result.code === 0;
             const output = isSuccess ? (cleanOutput || "✅ 执行完毕。") : `错误输出:\n${cleanOutput}\n\n${errorOutput}`;
 
@@ -468,13 +468,13 @@ export class FeishuBot extends BaseBot {
             if (messageId) {
                 const finalStatus = isSuccess ? "✅ 已完成，详情见下方结果卡片" : "❌ 执行失败，详情见下方卡片";
                 const card = this.createOperatedCard("📋 执行计划 (处理结束)", `**目标:** ${content}`, finalStatus, isSuccess ? "green" : "red");
-                await this.api.updateCard(messageId, card).catch(() => {});
+                await this.api.updateCard(messageId, card).catch(() => { });
             }
         } catch (error: any) {
             await this.sendResultCard(chatId, content, `❌ 执行过程中出现异常: ${error.message}`, false);
             if (messageId) {
                 const card = this.createOperatedCard("📋 执行计划 (出现故障)", `**目标:** ${content}`, "❌ 系统异常中断", "red");
-                await this.api.updateCard(messageId, card).catch(() => {});
+                await this.api.updateCard(messageId, card).catch(() => { });
             }
         }
     }
@@ -492,9 +492,9 @@ export class FeishuBot extends BaseBot {
 
         if (isDirect || isMentioned) {
             // Corrected: sender is a sibling of message in the event data
-            const senderId = data.sender?.sender_id?.open_id || 
-                             data.sender?.id?.open_id || 
-                             data.sender?.open_id;
+            const senderId = data.sender?.sender_id?.open_id ||
+                data.sender?.id?.open_id ||
+                data.sender?.open_id;
 
             if (!senderId) {
                 Dashboard.logEvent('SYS', `[Feishu] Cannot identify sender ID. Raw data.sender: ${JSON.stringify(data.sender)}`);
@@ -505,7 +505,7 @@ export class FeishuBot extends BaseBot {
             // --- Access Control Check ---
             if (!this.isVisibleToAll && !this.visibleUserIds.has(senderId)) {
                 Dashboard.logEvent('SYS', `[Feishu] Unauthorized access attempt from ${senderId}`);
-                await this.sendReply(message.chat_id, `🚫 [访问受限] 抱歉，您不在该应用的“可见范围”内，无权操作此 Agent。请联系管理员在飞书后台调整“应用可见范围”配置。`).catch(() => {});
+                await this.sendReply(message.chat_id, `🚫 [访问受限] 抱歉，您不在该应用的“可见范围”内，无权操作此 Agent。请联系管理员在飞书后台调整“应用可见范围”配置。`).catch(() => { });
                 return;
             }
             // ---------------------------

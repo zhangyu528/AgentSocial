@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import chalk from 'chalk';
 import { ExecutorFactory } from './core/executor';
 import { FeishuBot } from './platforms/feishu-bot';
@@ -17,11 +18,11 @@ const rootDir = path.join(__dirname, '..');
 // ---------------------------------------------------------
 
 async function main() {
-    let configPath = path.join(process.cwd(), 'config.json');
-    if (!fs.existsSync(configPath)) configPath = path.join(rootDir, 'config.json');
+    const configDir = path.join(os.homedir(), '.agentsocial');
+    const settingsPath = path.join(configDir, 'settings.json');
 
-    if (!fs.existsSync(configPath)) {
-        console.error(chalk.red("❌ No config.json found."));
+    if (!fs.existsSync(settingsPath)) {
+        console.error(chalk.red("❌ No settings.json found."));
         console.error("👉 Run 'agentsocial setup' to get started.");
         process.exit(1);
     }
@@ -29,9 +30,9 @@ async function main() {
     const PROJECT_ROOT = process.cwd();
     let rawConfig: any;
     try {
-        rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        rawConfig = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     } catch (e: any) {
-        console.error(chalk.red("❌ Failed to parse config.json:"), e.message);
+        console.error(chalk.red("❌ Failed to parse settings.json:"), e.message);
         process.exit(1);
     }
 
@@ -50,9 +51,9 @@ async function main() {
         const config = appConfigs[i];
         const platform = config.platform || 'feishu';
         const agentType = config.agent_type || 'gemini cli';
-        
+
         const executor = ExecutorFactory.create(agentType, rootDir);
-        
+
         let bot: BaseBot;
         if (platform === 'feishu') {
             bot = new FeishuBot(config, executor, PROJECT_ROOT);
@@ -74,7 +75,7 @@ async function main() {
 
     // 等待所有启动任务完成
     await Promise.all(startupPromises);
-    
+
     // 打印最终状态表格
     Dashboard.printTable(appsWithStatus);
 
@@ -104,20 +105,20 @@ async function main() {
 function checkDependencies(appConfigs: any[]) {
     const agentsToCheck = new Set(appConfigs.map(c => c.agent_type || 'gemini cli'));
     let missingAny = false;
-    
+
     for (const agent of agentsToCheck) {
         try {
             // Check installation
-            const cmd = agent === 'gemini cli' ? 'gemini --version' : 
-                        agent === 'claude' ? 'claude --version' : 
-                        agent === 'codex' ? 'codex --version' : 'gemini --version';
+            const cmd = agent === 'gemini cli' ? 'gemini --version' :
+                agent === 'claude' ? 'claude --version' :
+                    agent === 'codex' ? 'codex --version' : 'gemini --version';
             const version = execSync(cmd, { encoding: 'utf8', stdio: 'pipe' }).trim();
-            
+
             // Check login status for Gemini
             if (agent === 'gemini cli') {
                 execSync('gemini --list-sessions', { stdio: 'ignore' });
             }
-            
+
             console.log(`[Check] ${agent} CLI found and authenticated: ${version.substring(0, 20)}...`);
         } catch (e) {
             console.error(`\n❌ Error: Required agent '${agent}' is not installed or not authenticated.`);
@@ -159,55 +160,64 @@ async function runConfigWizard(): Promise<any> {
     `));
 
     const agents = [
-        { id: 'gemini cli', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions', available: true, desc: 'Advanced reasoning & tool use' },
-        { id: 'claude', name: 'Claude Code', check: '', available: false, desc: 'Coming soon...' },
-        { id: 'codex', name: 'Codex CLI', check: '', available: false, desc: 'Coming soon...' }
+        { id: 'gemini cli', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions', available: false, installCmd: 'npm install -g @google/gemini-cli', desc: 'Advanced reasoning & tool use' },
+        { id: 'claude', name: 'Claude Code', available: false, desc: 'Coming soon...' },
+        { id: 'codex', name: 'Codex CLI', available: false, desc: 'Coming soon...' }
     ];
+
+    console.log(chalk.cyan(`\n 🔍 Detecting environment...`));
+    // Only detect Gemini for now as it's the only supported one
+    try {
+        execSync(agents[0].check || '', { stdio: 'ignore' });
+        agents[0].available = true;
+    } catch (e) {
+        agents[0].available = false;
+    }
+
+    if (!agents[0].available) {
+        console.log(chalk.red("\n ❌ Google Gemini CLI not found on your system."));
+        console.log(chalk.yellow("\n To use AgentSocial, please install Gemini CLI:"));
+        console.log(chalk.white(`  • ${chalk.bold(agents[0].name)}: ${chalk.cyan(agents[0].installCmd)}`));
+        console.log("");
+        process.exit(1);
+    }
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const ask = (q: string) => new Promise<string>(r => rl.question(q, r));
 
     console.log(chalk.bold.white(" 🤖 Select your AI Core:"));
     console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
-    
+
     agents.forEach((a, i) => {
         const index = i + 1;
         if (a.available) {
             console.log(`  ${chalk.green.bold(index + '.')} ${chalk.white.bold(a.name.padEnd(25))} ${chalk.dim('│')} ${chalk.green(a.desc)}`);
         } else {
-            console.log(chalk.gray(`  ${index}. ${a.name.padEnd(25)} ${chalk.dim('│')} ${a.desc}`));
+            console.log(chalk.gray(`  ${index}. ${a.name.padEnd(25)} ${chalk.dim('│')} ${a.desc} (Coming soon...)`));
         }
     });
     console.log(chalk.gray(" ────────────────────────────────────────────────────────────\n"));
 
+    let choice = 0;
     let selectedAgent = agents[0];
-    const answer = await ask(chalk.bold.cyan(" ⌨️  Select agent [1]: "));
-    const choice = parseInt(answer);
 
-    if (choice > 1 && choice <= agents.length) {
-        console.log(chalk.yellow(`\n⚠️  Agent '${agents[choice-1].name}' is not yet available. Defaulting to Gemini.`));
+    while (true) {
+        const answer = await ask(chalk.bold.cyan(` ⌨️  Select agent [1-${agents.length}]: `));
+        choice = parseInt(answer) || 1;
+        if (choice >= 1 && choice <= agents.length) {
+            selectedAgent = agents[choice - 1];
+            if (selectedAgent.available) break;
+            console.log(chalk.red(`  ❌ ${selectedAgent.name} is not installed. Please choose an available one.`));
+        } else {
+            console.log(chalk.red(`  ❌ Invalid choice. Please enter 1 to ${agents.length}.`));
+        }
     }
-    
-    // Always force Gemini for now as requested
-    selectedAgent = agents[0];
+
     const agent = selectedAgent.id;
+    console.log(chalk.green(`\n ✅ Using ${selectedAgent.name}`));
 
-    console.log(chalk.cyan(`\n 🔍 Initializing ${selectedAgent.name}...`));
-
-    // Verify if Gemini is installed
-    try {
-        process.stdout.write(chalk.dim("    • Checking installation... "));
-        execSync(selectedAgent.check, { stdio: 'ignore' });
-        console.log(chalk.green("OK"));
-    } catch (e) {
-        console.log(chalk.red("Failed"));
-        console.error(chalk.red(`\n❌ Error: ${selectedAgent.name} (Gemini CLI) is not installed!`));
-        console.log(chalk.yellow("👉 Please install it first: npm install -g @google/gemini-cli"));
-        process.exit(1);
-    }
-
-    // Login status check (Option A)
-    if (selectedAgent.loginCheck) {
+    // Login status check for Gemini
+    if (selectedAgent.id === 'gemini cli' && selectedAgent.loginCheck) {
         process.stdout.write(chalk.dim(`    • Checking authentication... `));
         try {
             execSync(selectedAgent.loginCheck, { stdio: 'ignore' });
@@ -215,14 +225,14 @@ async function runConfigWizard(): Promise<any> {
         } catch (e) {
             console.log(chalk.red("Not logged in."));
             console.error(chalk.red(`\n❌ Error: ${selectedAgent.name} requires authentication.`));
-            console.log(chalk.yellow(`👉 Please run '${agent}' in your terminal to login first.`));
+            console.log(chalk.yellow(`👉 Please run 'gemini' in your terminal to login first.`));
             process.exit(1);
         }
     }
 
     console.log(chalk.bold.white("\n ⚙️  Project & Feishu Credentials:"));
     console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
-    
+
     const currentDir = process.cwd();
     const projectPathInput = await ask(chalk.white(`   📂 Project path (default: ${currentDir}): `));
     const projectPath = projectPathInput.trim() || currentDir;
@@ -259,7 +269,7 @@ async function runConfigWizard(): Promise<any> {
     console.log(chalk.cyan("\n 🔍 Verifying Feishu Configuration..."));
     const api = new FeishuAPI(appId.trim(), appSecret.trim());
     const report = await api.diagnose();
-    
+
     console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
     report.forEach(item => {
         const icon = item.status ? chalk.green("  ✅") : chalk.red("  ❌");
@@ -289,24 +299,26 @@ async function runConfigWizard(): Promise<any> {
     }
 
     rl.close();
-    return { 
-        "platform": "feishu", 
-        "app_id": appId.trim(), 
-        "app_secret": appSecret.trim(), 
-        "agent_type": agent, 
+    return {
+        "platform": "feishu",
+        "app_id": appId.trim(),
+        "app_secret": appSecret.trim(),
+        "agent_type": agent,
         "project_path": projectPath
     };
 }
 
 if (args.includes('setup')) {
     (async () => {
-        const targetPath = path.join(process.cwd(), 'config.json');
+        const configDir = path.join(os.homedir(), '.agentsocial');
+        if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+        const targetPath = path.join(configDir, 'settings.json');
         let configArray = fs.existsSync(targetPath) ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : [];
         const newApp = await runConfigWizard();
         configArray.push(newApp);
         fs.writeFileSync(targetPath, JSON.stringify(configArray, null, 2));
-        
-        console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to config.json'));
+
+        console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to ~/.agentsocial/settings.json'));
         console.log(chalk.cyan(' 👉 Run "npm run dev" to start your agent.\n'));
         process.exit(0);
     })();

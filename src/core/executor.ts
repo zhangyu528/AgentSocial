@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { Dashboard } from '../ui/dashboard';
 
 export interface ExecutionResult {
@@ -33,14 +34,16 @@ abstract class BaseExecutor implements IAgentExecutor {
     protected runningProcesses: Map<string, ChildProcess> = new Map();
 
     constructor(baseDir: string) {
-        this.sessionsDir = path.join(baseDir, 'sessions');
+        this.sessionsDir = path.join(os.homedir(), '.agentsocial', 'sessions');
         if (!fs.existsSync(this.sessionsDir)) {
             fs.mkdirSync(this.sessionsDir, { recursive: true });
         }
     }
 
     protected getWorkspacePath(appId: string, chatId: string): string {
-        const workspace = path.join(this.sessionsDir, appId, chatId);
+        // Hash chatId to prevent path traversal attacks
+        const safeChatId = crypto.createHash('md5').update(chatId).digest('hex');
+        const workspace = path.join(this.sessionsDir, appId, safeChatId);
         if (!fs.existsSync(workspace)) fs.mkdirSync(workspace, { recursive: true });
         return workspace;
     }
@@ -68,52 +71,70 @@ export class GeminiExecutor extends BaseExecutor {
         const dotGemini = path.join(workspace, '.gemini');
         if (!fs.existsSync(dotGemini)) fs.mkdirSync(dotGemini, { recursive: true });
 
-        // Sync global auth state to isolated workspace so agent recognizes user
+        // Sync global auth state to isolated workspace using symlinks (not copies)
+        // This prevents credential sprawl - only one copy of sensitive files exists
         const globalHome = path.join(os.homedir(), '.gemini');
         const authFiles = ['google_accounts.json', 'oauth_creds.json', 'settings.json', 'installation_id'];
         let syncCount = 0;
         for (const file of authFiles) {
             const src = path.join(globalHome, file);
-            if (fs.existsSync(src)) {
+            const dest = path.join(dotGemini, file);
+            if (fs.existsSync(src) && !fs.existsSync(dest)) {
                 try {
-                    fs.copyFileSync(src, path.join(dotGemini, file));
+                    // Use symlink instead of copy to avoid credential sprawl
+                    fs.symlinkSync(src, dest, 'file');
                     syncCount++;
-                } catch (e) {}
+                } catch (e: any) {
+                    // Fallback to copy if symlink fails (e.g., Windows without admin rights)
+                    if (e.code === 'EPERM' || e.code === 'EACCES') {
+                        fs.copyFileSync(src, dest);
+                        fs.chmodSync(dest, 0o600); // Restrict to owner only
+                        syncCount++;
+                    }
+                }
             }
         }
 
         const key = `${options.appId}:${options.chatId}`;
         const mode = options.runMode || 'auto';
 
-        // 构建命令
-        let approvalArg = '--yolo'; // Default YOLO
+        // Build command arguments (array-based to prevent injection)
+        const args: string[] = [];
         let cmdSuffix = '';
-        let resumeArg = '';
 
         if (mode === 'plan') {
-            approvalArg = '--approval-mode default'; // Strict/Default for planning
+            args.push('--approval-mode', 'plan'); // Use native read-only mode for planning
             cmdSuffix = ' (Please only output a detailed execution plan text. Do not execute any tools yet.)';
-            resumeArg = ''; // Always start a fresh session for planning to ensure isolation
+            // Always start a fresh session for planning to ensure isolation
         } else {
-            resumeArg = '--resume latest'; // Resume the plan session for actual execution
+            args.push('--yolo'); // YOLO mode for execution
+            args.push('--resume', 'latest'); // Resume the plan session
         }
 
-        // 核心参数
-        let cmd = `gemini ${approvalArg} ${resumeArg} --include-directories "${options.projectRoot}" -p "${options.command.replace(/"/g, '\\"')}${cmdSuffix}"`;
+        // Add core arguments
+        args.push('--include-directories', options.projectRoot);
+        args.push('-p', options.command + cmdSuffix);
 
         if (!options.silent) {
             Dashboard.logEvent('EXE', `Running [${mode}]: ${options.command.substring(0, 30)}...`);
         }
 
         return new Promise((resolve) => {
-            const child = spawn(cmd, {
+            // Windows compatibility: .cmd files need cmd.exe when shell:false
+            let command = 'gemini';
+            let finalArgs = args;
+            if (process.platform === 'win32') {
+                command = 'cmd.exe';
+                finalArgs = ['/c', 'gemini', ...args];
+            }
+
+            const child = spawn(command, finalArgs, {
                 cwd: options.projectRoot, // 必须在项目根目录运行，否则 Agent 无法找到文件
-                env: { 
-                    ...process.env, 
-                    // 依然将历史记录和配置隔离在 session 目录中
-                    GEMINI_CLI_HOME: workspace 
+                env: {
+                    ...process.env,
+                    GEMINI_CLI_HOME: workspace
                 },
-                shell: true
+                shell: false
             });
 
             this.runningProcesses.set(key, child);
