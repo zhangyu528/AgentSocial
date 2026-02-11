@@ -4,6 +4,7 @@ import { IAgentExecutor } from '../core/executor';
 import { Dashboard } from '../ui/dashboard';
 import * as lark from '@larksuiteoapi/node-sdk';
 import * as path from 'path';
+import { parseFeishuCommand } from './feishu-utils';
 
 export class FeishuBot extends BaseBot {
     private api: FeishuAPI;
@@ -510,12 +511,8 @@ export class FeishuBot extends BaseBot {
             }
             // ---------------------------
 
-            let content = JSON.parse(message.content).text;
-            // Clean mentions
-            mentions.forEach((m: any) => {
-                const mId = (typeof m.id === 'object') ? m.id.open_id : m.id;
-                if (mId === this.botOpenId || mId === this.appId) content = content.replace(m.key, '');
-            });
+            let rawContent = JSON.parse(message.content).text;
+            const content = parseFeishuCommand(rawContent, mentions, this.botOpenId || this.appId);
 
             const source = isDirect ? 'P2P' : 'Group';
             Dashboard.logEvent('MSG', `[Feishu] Received ${source} command from ${message.chat_id.substring(0, 10)}...`);

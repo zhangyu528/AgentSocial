@@ -10,6 +10,8 @@ import { Dashboard } from './ui/dashboard';
 import { FeishuAPI } from './services/feishu-api';
 import * as readline from 'readline';
 import { execSync } from 'child_process';
+import { detectAgent, checkAuth, SUPPORTED_AGENTS, AgentInfo } from './core/setup-utils';
+import { ConfigManager, AppConfig } from './core/config-manager';
 
 const rootDir = path.join(__dirname, '..');
 
@@ -18,26 +20,16 @@ const rootDir = path.join(__dirname, '..');
 // ---------------------------------------------------------
 
 async function main() {
-    const configDir = path.join(os.homedir(), '.agentsocial');
-    const settingsPath = path.join(configDir, 'settings.json');
+    const configManager = new ConfigManager();
+    const appConfigs = configManager.getSettings();
 
-    if (!fs.existsSync(settingsPath)) {
-        console.error(chalk.red("❌ No settings.json found."));
+    if (appConfigs.length === 0) {
+        console.error(chalk.red("❌ No configuration found."));
         console.error("👉 Run 'agentsocial setup' to get started.");
         process.exit(1);
     }
 
     const PROJECT_ROOT = process.cwd();
-    let rawConfig: any;
-    try {
-        rawConfig = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    } catch (e: any) {
-        console.error(chalk.red("❌ Failed to parse settings.json:"), e.message);
-        process.exit(1);
-    }
-
-    const appConfigs = Array.isArray(rawConfig) ? rawConfig : (rawConfig.apps || [rawConfig]);
-
     checkDependencies(appConfigs);
 
     // 显示仪表盘
@@ -159,25 +151,20 @@ async function runConfigWizard(): Promise<any> {
     ╚════════════════════════════════════════════════════════════╝
     `));
 
-    const agents = [
-        { id: 'gemini cli', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions', available: false, installCmd: 'npm install -g @google/gemini-cli', desc: 'Advanced reasoning & tool use' },
-        { id: 'claude', name: 'Claude Code', available: false, desc: 'Coming soon...' },
-        { id: 'codex', name: 'Codex CLI', available: false, desc: 'Coming soon...' }
-    ];
+    const agents = [...SUPPORTED_AGENTS];
 
     console.log(chalk.cyan(`\n 🔍 Detecting environment...`));
-    // Only detect Gemini for now as it's the only supported one
-    try {
-        execSync(agents[0].check || '', { stdio: 'ignore' });
-        agents[0].available = true;
-    } catch (e) {
-        agents[0].available = false;
-    }
 
-    if (!agents[0].available) {
+    // Detect availability
+    agents.forEach(agent => {
+        agent.available = detectAgent(agent);
+    });
+
+    const gemini = agents.find(a => a.id === 'gemini cli')!;
+    if (!gemini.available) {
         console.log(chalk.red("\n ❌ Google Gemini CLI not found on your system."));
         console.log(chalk.yellow("\n To use AgentSocial, please install Gemini CLI:"));
-        console.log(chalk.white(`  • ${chalk.bold(agents[0].name)}: ${chalk.cyan(agents[0].installCmd)}`));
+        console.log(chalk.white(`  • ${chalk.bold(gemini.name)}: ${chalk.cyan(gemini.installCmd)}`));
         console.log("");
         process.exit(1);
     }
@@ -217,12 +204,11 @@ async function runConfigWizard(): Promise<any> {
     console.log(chalk.green(`\n ✅ Using ${selectedAgent.name}`));
 
     // Login status check for Gemini
-    if (selectedAgent.id === 'gemini cli' && selectedAgent.loginCheck) {
+    if (selectedAgent.available && selectedAgent.loginCheck) {
         process.stdout.write(chalk.dim(`    • Checking authentication... `));
-        try {
-            execSync(selectedAgent.loginCheck, { stdio: 'ignore' });
+        if (checkAuth(selectedAgent)) {
             console.log(chalk.green("Logged in."));
-        } catch (e) {
+        } else {
             console.log(chalk.red("Not logged in."));
             console.error(chalk.red(`\n❌ Error: ${selectedAgent.name} requires authentication.`));
             console.log(chalk.yellow(`👉 Please run 'gemini' in your terminal to login first.`));
@@ -310,13 +296,9 @@ async function runConfigWizard(): Promise<any> {
 
 if (args.includes('setup')) {
     (async () => {
-        const configDir = path.join(os.homedir(), '.agentsocial');
-        if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-        const targetPath = path.join(configDir, 'settings.json');
-        let configArray = fs.existsSync(targetPath) ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : [];
+        const configManager = new ConfigManager();
         const newApp = await runConfigWizard();
-        configArray.push(newApp);
-        fs.writeFileSync(targetPath, JSON.stringify(configArray, null, 2));
+        configManager.addApp(newApp);
 
         console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to ~/.agentsocial/settings.json'));
         console.log(chalk.cyan(' 👉 Run "npm run dev" to start your agent.\n'));
