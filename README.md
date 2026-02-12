@@ -52,15 +52,17 @@ AgentSocial 是一个轻量级但功能强大的中间件，旨在让你通过�
 
 ### 2. 安装
 
-**配置 GitHub Packages 注册表**
-在你的系统用户主目录（或项目根目录）新建一个 `.npmrc` 文件，并添加以下内容：
-```text
-@zhangyu528:registry=https://npm.pkg.github.com
-```
+通过 [GitHub CLI](https://cli.github.com/) 验证并安装：
 
-**通过 NPM 安装**
 ```bash
-npm install -g @zhangyu528/agentsocial
+# 1. 登录 GitHub
+gh auth login
+
+# 2. 刷新权限以支持读取 Packages
+gh auth refresh -s read:packages
+
+# 3. 全局安装
+npm install -g @zhangyu528/agentsocial --@zhangyu528:registry=https://npm.pkg.github.com
 ```
 
 ### 3. 配置向导 (Setup)

@@ -7,11 +7,11 @@
     "type": "git",
     "url": "https://github.com/zhangyu528/AgentSocial.git"
   },
-  "version": "0.2.0",
+  "version": "0.1.1",
   "description": "Giving AI Agents a social identity: Unified bridge for notifications and commands via Feishu, DingTalk, and more.",
-  "main": "dist/src/main.js",
+  "main": "dist/main.js",
   "bin": {
-    "agentsocial": "dist/src/main.js"
+    "agentsocial": "dist/main.js"
   },
   "files": [
     "dist",
