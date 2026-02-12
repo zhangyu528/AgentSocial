@@ -61,7 +61,10 @@ gh auth login
 # 2. 刷新权限以支持读取 Packages
 gh auth refresh -s read:packages
 
-# 3. 全局安装
+# 3. 配置 npm auth token
+npm config set //npm.pkg.github.com/:_authToken=$(gh auth token)
+
+# 4. 全局安装
 npm install -g @zhangyu528/agentsocial --@zhangyu528:registry=https://npm.pkg.github.com
 ```
 
