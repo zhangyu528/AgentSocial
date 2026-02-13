@@ -28,6 +28,7 @@
     "lint": "tsc --noEmit",
     "build": "tsc",
     "test": "jest",
+    "test:coverage": "jest --config tests/jest.coverage.config.js",
     "prepare": "husky"
   },
   "keywords": [

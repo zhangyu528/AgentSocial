@@ -1,4 +1,4 @@
-import { ConfigManager, AppConfig } from '../core/config-manager';
+import { ConfigManager, AppConfig } from '../../src/core/config-manager';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

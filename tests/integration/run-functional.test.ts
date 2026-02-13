@@ -1,5 +1,5 @@
-import { parseFeishuCommand } from '../platforms/feishu-utils';
-import { GeminiExecutor } from '../core/executor';
+import { parseFeishuCommand } from '../../src/platforms/feishu-utils';
+import { GeminiExecutor } from '../../src/core/executor';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

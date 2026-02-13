@@ -1,4 +1,4 @@
-import { detectAgent, checkAuth, SUPPORTED_AGENTS } from '../core/setup-utils';
+import { detectAgent, checkAuth, SUPPORTED_AGENTS } from '../../src/core/setup-utils';
 import { execSync } from 'child_process';
 
 // Mock child_process

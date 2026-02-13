@@ -1,4 +1,4 @@
-import { FeishuAPI } from '../services/feishu-api';
+import { FeishuAPI } from '../../src/services/feishu-api';
 import nock from 'nock';
 
 describe('FeishuAPI - 诊断功能集成测试 (Integration Tests)', () => {
