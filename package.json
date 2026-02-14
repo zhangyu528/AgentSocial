@@ -29,6 +29,9 @@
     "build": "tsc",
     "test": "jest",
     "test:coverage": "jest --config tests/jest.coverage.config.js",
+    "test:checklist": "node tests/scripts/update-functional-checklist.js",
+    "check:test-checklist": "node tests/scripts/check-functional-checklist.js",
+    "pre-push:quality": "npm run test:checklist && npm run check:test-checklist",
     "prepare": "husky"
   },
   "keywords": [
@@ -58,3 +61,5 @@
     "typescript": "^5.9.3"
   }
 }
+
+

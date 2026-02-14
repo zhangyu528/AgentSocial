@@ -15,7 +15,8 @@ export class ConfigManager {
     private settingsPath: string;
 
     constructor(customConfigDir?: string) {
-        this.configDir = customConfigDir || path.join(os.homedir(), '.agentsocial');
+        const envConfigDir = process.env.AGENTSOCIAL_HOME;
+        this.configDir = customConfigDir || envConfigDir || path.join(os.homedir(), '.agentsocial');
         this.settingsPath = path.join(this.configDir, 'settings.json');
     }
 
@@ -45,7 +46,16 @@ export class ConfigManager {
 
     public addApp(config: AppConfig) {
         const current = this.getSettings();
-        current.push(config);
+        const index = current.findIndex(item =>
+            item.platform === config.platform && item.app_id === config.app_id
+        );
+
+        if (index >= 0) {
+            current[index] = config;
+        } else {
+            current.push(config);
+        }
+
         this.saveSettings(current);
     }
 }

@@ -50,3 +50,11 @@
 
 #### [NEW] [src/__tests__/run-functional.test.ts](file:///d:/work/project/AgentSocial/src/__tests__/run-functional.test.ts)
 - 覆盖 `run` 核心指令流与沙盒逻辑。
+
+---
+
+## 3. 发布前检查要求 (Coverage + Checklist)
+
+- Coverage 报告: 执行 `npm run test:coverage`，确认覆盖率报告生成且关键模块无明显回退。
+- 功能测试清单: 执行并勾选 `tests/docs/FUNCTIONAL_TEST_CHECKLIST.md` 中条目，作为发布前功能验证记录。
+- 发布门禁建议: 覆盖率和功能清单必须同时通过，任一失败则阻断发布。

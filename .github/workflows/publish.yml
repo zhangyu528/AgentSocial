@@ -31,8 +31,16 @@ jobs:
       - name: Build Project
         run: npm run build
 
+      - name: Update Checklist From CI Results
+        run: npm run test:checklist
+
+      - name: Validate Checklist Gate
+        run: npm run check:test-checklist
+
       - name: Publish to GitHub Packages
         run: npm publish
         env:
           # 使用内置的 GITHUB_TOKEN，无需手动创建 secret
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+

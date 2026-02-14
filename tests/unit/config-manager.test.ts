@@ -69,4 +69,12 @@ describe('ConfigManager - 配置持久化测试', () => {
         expect(Array.isArray(settings)).toBe(true);
         expect(settings[0].app_id).toBe('old_app');
     });
+
+    it('配置文件损坏（非法 JSON）时应安全返回空数组', () => {
+        configManager.ensureConfigDir();
+        fs.writeFileSync(path.join(tempDir, 'settings.json'), '{invalid-json');
+
+        const settings = configManager.getSettings();
+        expect(settings).toEqual([]);
+    });
 });

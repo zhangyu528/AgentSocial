@@ -12,6 +12,7 @@ import * as readline from 'readline';
 import { execSync } from 'child_process';
 import { detectAgent, checkAuth, SUPPORTED_AGENTS, AgentInfo } from './core/setup-utils';
 import { ConfigManager, AppConfig } from './core/config-manager';
+import { validateFeishuCredentials } from './core/setup-validation';
 
 const rootDir = path.join(__dirname, '..');
 
@@ -225,6 +226,13 @@ async function runConfigWizard(): Promise<any> {
 
     const appId = await ask(chalk.white("   🆔 App ID: "));
     const appSecret = await ask(chalk.white("   🔑 App Secret: "));
+    const validation = validateFeishuCredentials(appId, appSecret);
+    if (!validation.valid) {
+        console.error(chalk.red("\n❌ 凭证校验失败："));
+        validation.errors.forEach(err => console.error(chalk.red(`   - ${err}`)));
+        rl.close();
+        process.exit(1);
+    }
     console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
 
     console.log(chalk.bold.yellow('\n 🚧 Action Required: Configure Feishu Developer Console'));
@@ -294,15 +302,57 @@ async function runConfigWizard(): Promise<any> {
     };
 }
 
+function parseArgValue(name: string): string | undefined {
+    const index = args.indexOf(name);
+    if (index === -1 || index + 1 >= args.length) return undefined;
+    return args[index + 1];
+}
+
+async function runNonInteractiveSetup(): Promise<AppConfig> {
+    const appId = parseArgValue('--app-id')?.trim() || '';
+    const appSecret = parseArgValue('--app-secret')?.trim() || '';
+    const agentType = parseArgValue('--agent-type')?.trim() || 'gemini cli';
+    const projectPath = parseArgValue('--project-path')?.trim() || process.cwd();
+    const skipDiagnose = args.includes('--skip-diagnose');
+
+    const validation = validateFeishuCredentials(appId, appSecret);
+    if (!validation.valid) {
+        throw new Error(`凭证校验失败: ${validation.errors.join(' | ')}`);
+    }
+
+    if (!skipDiagnose) {
+        const api = new FeishuAPI(appId, appSecret);
+        const report = await api.diagnose();
+        const allPassed = report.every(r => r.status);
+        if (!allPassed) {
+            throw new Error('飞书配置诊断未通过（可加 --skip-diagnose 跳过）。');
+        }
+    }
+
+    return {
+        platform: 'feishu',
+        app_id: appId,
+        app_secret: appSecret,
+        agent_type: agentType,
+        project_path: projectPath
+    };
+}
+
 if (args.includes('setup')) {
     (async () => {
-        const configManager = new ConfigManager();
-        const newApp = await runConfigWizard();
-        configManager.addApp(newApp);
+        try {
+            const configManager = new ConfigManager();
+            const nonInteractive = args.includes('--non-interactive');
+            const newApp = nonInteractive ? await runNonInteractiveSetup() : await runConfigWizard();
+            configManager.addApp(newApp);
 
-        console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to ~/.agentsocial/settings.json'));
-        console.log(chalk.cyan(' 👉 Run "npm run dev" to start your agent.\n'));
-        process.exit(0);
+            console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to ~/.agentsocial/settings.json'));
+            console.log(chalk.cyan(' 👉 Run "npm run dev" to start your agent.\n'));
+            process.exit(0);
+        } catch (error: any) {
+            console.error(chalk.red(`\n❌ setup failed: ${error?.message || String(error)}`));
+            process.exit(1);
+        }
     })();
 } else {
     main();
