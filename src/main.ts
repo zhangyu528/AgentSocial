@@ -13,6 +13,8 @@ import { execSync } from 'child_process';
 import { detectAgent, checkAuth, SUPPORTED_AGENTS, AgentInfo } from './core/setup-utils';
 import { ConfigManager, AppConfig } from './core/config-manager';
 import { validateFeishuCredentials } from './core/setup-validation';
+import { parseCliArgs, getCliUsage, SetupCliOptions } from './core/cli-args';
+import { readProjectVersion } from './core/version';
 
 const rootDir = path.join(__dirname, '..');
 
@@ -128,16 +130,75 @@ function checkDependencies(appConfigs: any[]) {
 // CLI ARGUMENT HANDLING
 // ---------------------------------------------------------
 const args = process.argv.slice(2);
+const parsedCli = parseCliArgs(args);
+const cliAction = parsedCli.action;
 
-if (args.includes('--help') || args.includes('-h')) {
-    console.log(`
-Usage: agentsocial [command]
-
-Commands:
-  setup         Configure and verify a new App/Agent
-  run           Start the agent service (default)
-`);
+if (cliAction === 'help') {
+    if (parsedCli.errors.length > 0) {
+        parsedCli.errors.forEach(e => console.error(chalk.red(`❌ ${e}`)));
+        console.log(getCliUsage());
+        process.exit(1);
+    }
+    console.log(getCliUsage());
     process.exit(0);
+}
+
+if (cliAction === 'version') {
+    try {
+        console.log(readProjectVersion(process.cwd(), __dirname));
+        process.exit(0);
+    } catch (error: any) {
+        console.error(chalk.red(`❌ ${error?.message || String(error)}`));
+        process.exit(1);
+    }
+}
+
+if (parsedCli.errors.length > 0) {
+    parsedCli.errors.forEach(e => console.error(chalk.red(`❌ ${e}`)));
+    console.log(getCliUsage());
+    process.exit(1);
+}
+
+function runConfigCommand() {
+    const manager = new ConfigManager();
+    const options = parsedCli.configOptions;
+
+    if (options.mode === "list") {
+        const settings = manager.getSettings();
+        if (settings.length === 0) {
+            console.log(chalk.yellow("No app configs found."));
+            process.exit(0);
+        }
+        settings.forEach((item, index) => {
+            console.log(`[${index + 1}] app_id=${item.app_id} platform=${item.platform} agent=${item.agent_type} project=${item.project_path}`);
+        });
+        process.exit(0);
+    }
+
+    if (options.mode === "remove" && options.targetAppId) {
+        const removed = manager.removeApp(options.targetAppId);
+        if (!removed) {
+            console.error(chalk.red(`❌ app_id not found: ${options.targetAppId}`));
+            process.exit(1);
+        }
+        console.log(chalk.green(`✅ removed app config: ${options.targetAppId}`));
+        process.exit(0);
+    }
+
+    if (options.mode === "update" && options.targetAppId) {
+        const update: { app_secret?: string; agent_type?: string; project_path?: string } = {};
+        if (options.appSecret) update.app_secret = options.appSecret;
+        if (options.agentType) update.agent_type = options.agentType;
+        if (options.projectPath) update.project_path = options.projectPath;
+
+        const updated = manager.updateApp(options.targetAppId, update);
+        if (!updated) {
+            console.error(chalk.red(`❌ app_id not found: ${options.targetAppId}`));
+            process.exit(1);
+        }
+        console.log(chalk.green(`✅ updated app config: ${options.targetAppId}`));
+        process.exit(0);
+    }
 }
 
 async function runConfigWizard(): Promise<any> {
@@ -302,18 +363,12 @@ async function runConfigWizard(): Promise<any> {
     };
 }
 
-function parseArgValue(name: string): string | undefined {
-    const index = args.indexOf(name);
-    if (index === -1 || index + 1 >= args.length) return undefined;
-    return args[index + 1];
-}
-
-async function runNonInteractiveSetup(): Promise<AppConfig> {
-    const appId = parseArgValue('--app-id')?.trim() || '';
-    const appSecret = parseArgValue('--app-secret')?.trim() || '';
-    const agentType = parseArgValue('--agent-type')?.trim() || 'gemini cli';
-    const projectPath = parseArgValue('--project-path')?.trim() || process.cwd();
-    const skipDiagnose = args.includes('--skip-diagnose');
+async function runNonInteractiveSetup(options: SetupCliOptions): Promise<AppConfig> {
+    const appId = options.appId?.trim() || '';
+    const appSecret = options.appSecret?.trim() || '';
+    const agentType = options.agentType?.trim() || 'gemini cli';
+    const projectPath = options.projectPath?.trim() || process.cwd();
+    const skipDiagnose = options.skipDiagnose;
 
     const validation = validateFeishuCredentials(appId, appSecret);
     if (!validation.valid) {
@@ -338,12 +393,12 @@ async function runNonInteractiveSetup(): Promise<AppConfig> {
     };
 }
 
-if (args.includes('setup')) {
+if (cliAction === 'setup') {
     (async () => {
         try {
             const configManager = new ConfigManager();
-            const nonInteractive = args.includes('--non-interactive');
-            const newApp = nonInteractive ? await runNonInteractiveSetup() : await runConfigWizard();
+            const setupMode = parsedCli.setupOptions.mode;
+            const newApp = setupMode === "apply" ? await runNonInteractiveSetup(parsedCli.setupOptions) : await runConfigWizard();
             configManager.addApp(newApp);
 
             console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to ~/.agentsocial/settings.json'));
@@ -354,6 +409,8 @@ if (args.includes('setup')) {
             process.exit(1);
         }
     })();
-} else {
+} else if (cliAction === 'config') {
+    runConfigCommand();
+} else if (cliAction === 'run') {
     main();
 }

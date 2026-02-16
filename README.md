@@ -1,4 +1,4 @@
-# AgentSocial 🤖
+﻿# AgentSocial 🤖
 
 > **为 AI Agent 提供社交身份** —— 一个将本地 AI CLI（如 Gemini CLI, Claude Code）与社交平台（飞书等）无缝连接的智能网桥。
 
@@ -66,7 +66,7 @@ npm install -g @zhangyu528/agentsocial
 ### 3. 配置向导 (Setup)
 在任意终端执行：
 ```bash
-agentsocial setup
+agentsocial setup init
 ```
 程序将引导你：
 1. **智能检测**: 自动探测本地是否安装了 Gemini CLI 等 Agent 环境，并给出详细安装建议。
@@ -90,7 +90,7 @@ agentsocial run
 
 | 指令 | 别名 | 说明 |
 | :--- | :--- | :--- |
-| `agentsocial setup` | - | **交互式配置**。引导完成飞书应用对接与权限校验。 |
+| `agentsocial setup init` | - | **交互式配置**。引导完成飞书应用对接与权限校验。 |
 | `agentsocial run` | (默认) | **启动服务**。根据 `config.json` 启动所有机器人实例。 |
 | `agentsocial -h` | `--help` | 显示帮助信息。 |
 
@@ -154,14 +154,14 @@ AgentSocial 的配置现在存储在全局目录 `~/.agentsocial/settings.json` 
 
 ### 开发模式
 ```bash
-# 启动热更新开发环境
-npm run dev
+# 通过 CLI 查看帮助
+npm run cli -- -h
 
-# 直接运行 setup 指令的开发版
-npm run dev:setup
+# 通过 CLI 运行 setup init
+npm run cli -- setup init
 
-# 直接运行启动指令的开发版
-npm run dev:run
+# 通过 CLI 运行服务
+npm run cli -- run
 ```
 
 ### 架构设计

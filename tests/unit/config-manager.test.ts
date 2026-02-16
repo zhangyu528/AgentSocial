@@ -77,4 +77,34 @@ describe('ConfigManager - 配置持久化测试', () => {
         const settings = configManager.getSettings();
         expect(settings).toEqual([]);
     });
+
+    it('removeApp 应当删除指定 app_id 的配置', () => {
+        const config1: AppConfig = { platform: 'feishu', app_id: 'app1', app_secret: 's1', agent_type: 'gemini', project_path: 'p1' };
+        const config2: AppConfig = { platform: 'feishu', app_id: 'app2', app_secret: 's2', agent_type: 'codex', project_path: 'p2' };
+        configManager.saveSettings([config1, config2]);
+
+        const removed = configManager.removeApp('app1');
+        const settings = configManager.getSettings();
+
+        expect(removed).toBe(true);
+        expect(settings).toHaveLength(1);
+        expect(settings[0].app_id).toBe('app2');
+    });
+
+    it('updateApp 应当更新指定 app_id 的字段且不新增记录', () => {
+        const config1: AppConfig = { platform: 'feishu', app_id: 'app1', app_secret: 's1', agent_type: 'gemini', project_path: 'p1' };
+        configManager.saveSettings([config1]);
+
+        const updated = configManager.updateApp('app1', {
+            agent_type: 'codex',
+            project_path: 'p-new'
+        });
+        const settings = configManager.getSettings();
+
+        expect(updated).toBe(true);
+        expect(settings).toHaveLength(1);
+        expect(settings[0].app_id).toBe('app1');
+        expect(settings[0].agent_type).toBe('codex');
+        expect(settings[0].project_path).toBe('p-new');
+    });
 });

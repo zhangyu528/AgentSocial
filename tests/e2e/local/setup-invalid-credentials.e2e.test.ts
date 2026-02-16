@@ -1,10 +1,10 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 
 describe('Setup Invalid Credentials E2E (A3/A1.7)', () => {
-    const repoRoot = path.resolve(__dirname, '..', '..');
+    const repoRoot = path.resolve(__dirname, '..', '..', '..');
     let tempRoot: string;
     let configPath: string;
 
@@ -27,7 +27,7 @@ describe('Setup Invalid Credentials E2E (A3/A1.7)', () => {
                 'ts-node/register',
                 'src/main.ts',
                 'setup',
-                '--non-interactive',
+                'apply',
                 '--skip-diagnose',
                 '--app-id',
                 'bad id',
@@ -50,3 +50,4 @@ describe('Setup Invalid Credentials E2E (A3/A1.7)', () => {
         expect(fs.existsSync(path.join(configPath, 'settings.json'))).toBe(false);
     });
 });
+

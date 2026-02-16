@@ -1,10 +1,10 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 
 describe('Setup First Run E2E (A1.1a~A1.1d)', () => {
-    const repoRoot = path.resolve(__dirname, '..', '..');
+    const repoRoot = path.resolve(__dirname, '..', '..', '..');
     let tempRoot: string;
     let testProjectPath: string;
     let configPath: string;
@@ -31,7 +31,7 @@ describe('Setup First Run E2E (A1.1a~A1.1d)', () => {
                 'ts-node/register',
                 'src/main.ts',
                 'setup',
-                '--non-interactive',
+                'apply',
                 '--skip-diagnose',
                 '--app-id',
                 'cli_app_001',
@@ -63,3 +63,4 @@ describe('Setup First Run E2E (A1.1a~A1.1d)', () => {
         expect(fs.existsSync(settingsPath)).toBe(true);
     });
 });
+

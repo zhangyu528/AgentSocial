@@ -1,10 +1,10 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 
 describe('Setup Idempotent E2E (A6)', () => {
-    const repoRoot = path.resolve(__dirname, '..', '..');
+    const repoRoot = path.resolve(__dirname, '..', '..', '..');
     let tempRoot: string;
     let testProjectPath: string;
     let configPath: string;
@@ -30,7 +30,7 @@ describe('Setup Idempotent E2E (A6)', () => {
                 'ts-node/register',
                 'src/main.ts',
                 'setup',
-                '--non-interactive',
+                'apply',
                 '--skip-diagnose',
                 '--app-id',
                 'cli_app_001',
@@ -89,3 +89,4 @@ describe('Setup Idempotent E2E (A6)', () => {
         expect(settings[0].agent_type).toBe('codex');
     });
 });
+

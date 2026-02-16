@@ -12,6 +12,7 @@ export class FeishuBot extends BaseBot {
     private botName: string | null = null;
     private visibleUserIds: Set<string> = new Set();
     private isVisibleToAll: boolean = false;
+    private processedCardActionKeys: Set<string> = new Set();
 
     constructor(config: any, executor: IAgentExecutor, defaultRoot: string) {
         super(config, executor, defaultRoot);
@@ -90,6 +91,16 @@ export class FeishuBot extends BaseBot {
                         const messageId = data.context?.open_message_id;
                         const originalCmd = data.action?.value?.original_cmd;
                         const prompt = data.action?.value?.prompt;
+                        const actionKey = [messageId || 'no_msg', chatId || 'no_chat', actionId || 'no_action'].join(':');
+
+                        if (this.processedCardActionKeys.has(actionKey)) {
+                            return { toast: { type: "info", content: "操作已处理，无需重复提交。" } };
+                        }
+                        this.processedCardActionKeys.add(actionKey);
+                        if (this.processedCardActionKeys.size > 1000) {
+                            const it = this.processedCardActionKeys.values();
+                            this.processedCardActionKeys.delete(it.next().value!);
+                        }
 
                         let cardToUpdate: any = null;
                         if (messageId && chatId) {

@@ -11,7 +11,7 @@
   "description": "Giving AI Agents a social identity: Unified bridge for notifications and commands via Feishu, DingTalk, and more.",
   "main": "dist/src/main.js",
   "bin": {
-    "agentsocial": "dist/src/main.js"
+    "agentsocial": "dist/main.js"
   },
   "files": [
     "dist",
@@ -20,18 +20,20 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
-    "dev:setup": "ts-node src/main.ts setup",
+    "cli": "ts-node src/main.ts",
+    "dev:setup:init": "ts-node src/main.ts setup init",
     "dev:run": "ts-node src/main.ts run",
-    "start": "node dist/src/main.js",
-    "clean": "rm -rf dist sessions",
+    "start": "node dist/main.js",
     "lint": "tsc --noEmit",
     "build": "tsc",
     "test": "jest",
-    "test:coverage": "jest --config tests/jest.coverage.config.js",
-    "test:checklist": "node tests/scripts/update-functional-checklist.js",
-    "check:test-checklist": "node tests/scripts/check-functional-checklist.js",
-    "pre-push:quality": "npm run test:checklist && npm run check:test-checklist",
+    "test:unit": "jest tests/unit --maxWorkers=50%",
+    "test:integration": "jest tests/integration --maxWorkers=50%",
+    "test:contract": "jest tests/contract --maxWorkers=50%",
+    "test:e2e": "jest tests/e2e/local --runInBand",
+    "test:smoke": "jest tests/smoke/feishu-real-chain.smoke.test.ts --runInBand",
+    "test:coverage": "jest --config tests/scripts/jest.coverage.config.js",
+    "checklists:sync": "node tests/scripts/update-checklists.js",
     "prepare": "husky"
   },
   "keywords": [
@@ -61,5 +63,8 @@
     "typescript": "^5.9.3"
   }
 }
+
+
+
 
 

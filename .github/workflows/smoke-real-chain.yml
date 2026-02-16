@@ -1,0 +1,39 @@
+name: Smoke E2E
+
+on:
+  schedule:
+    # GitHub Actions cron uses UTC. 18:00 UTC = 02:00 Beijing Time (UTC+8)
+    - cron: '0 18 * * *'
+
+jobs:
+  smoke-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Smoke E2E Secrets
+        run: |
+          test -n "${FEISHU_APP_ID}" || (echo "Missing secret: FEISHU_APP_ID" && exit 1)
+          test -n "${FEISHU_APP_SECRET}" || (echo "Missing secret: FEISHU_APP_SECRET" && exit 1)
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+
+      - name: Run Real Smoke E2E
+        run: npm run test:smoke
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_SMOKE_REQUIRED: ${{ secrets.FEISHU_SMOKE_REQUIRED }}
+          FEISHU_SMOKE_CHAT_ID: ${{ secrets.FEISHU_SMOKE_CHAT_ID }}
+

@@ -10,6 +10,8 @@ export interface AppConfig {
     project_path: string;
 }
 
+export type AppConfigUpdate = Partial<Pick<AppConfig, "app_secret" | "agent_type" | "project_path">>;
+
 export class ConfigManager {
     private configDir: string;
     private settingsPath: string;
@@ -57,5 +59,25 @@ export class ConfigManager {
         }
 
         this.saveSettings(current);
+    }
+
+    public removeApp(appId: string): boolean {
+        const current = this.getSettings();
+        const next = current.filter(item => item.app_id !== appId);
+        if (next.length === current.length) return false;
+        this.saveSettings(next);
+        return true;
+    }
+
+    public updateApp(appId: string, update: AppConfigUpdate): boolean {
+        const current = this.getSettings();
+        const index = current.findIndex(item => item.app_id === appId);
+        if (index < 0) return false;
+        current[index] = {
+            ...current[index],
+            ...update
+        };
+        this.saveSettings(current);
+        return true;
     }
 }

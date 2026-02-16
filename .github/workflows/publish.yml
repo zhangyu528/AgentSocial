@@ -2,45 +2,81 @@ name: Publish to GitHub Packages
 
 on:
   release:
-    types: [published] 
+    types: [published]
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
-      packages: write 
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Verify CI passed for this commit
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const headSha = context.sha;
+            const res = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: "ci.yml",
+              head_sha: headSha,
+              status: "completed",
+              per_page: 20,
+            });
+            const passed = res.data.workflow_runs.find(
+              (run) => run.conclusion === "success"
+            );
+            if (!passed) {
+              core.setFailed(
+                `No successful CI run found for commit ${headSha}.`
+              );
+              return;
+            }
+            core.info(
+              `CI gate passed via run id=${passed.id}, run_number=${passed.run_number}.`
+            );
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://npm.pkg.github.com'
-          # 注意：这里的 scope 通常需要与 package.json 中的名称前缀一致
+          cache: 'npm'
           scope: '@${{ github.repository_owner }}'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run Linting
-        run: npm run lint || echo "Linting failed but continuing..." # 建议不要因 lint 失败就中断发布
+        run: npm run lint
 
       - name: Build Project
         run: npm run build
 
-      - name: Update Checklist From CI Results
-        run: npm run test:checklist
+      - name: Verify Smoke E2E Secrets
+        run: |
+          test -n "${FEISHU_APP_ID}" || (echo "Missing secret: FEISHU_APP_ID" && exit 1)
+          test -n "${FEISHU_APP_SECRET}" || (echo "Missing secret: FEISHU_APP_SECRET" && exit 1)
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
 
-      - name: Validate Checklist Gate
-        run: npm run check:test-checklist
+      - name: Run Real Smoke E2E (Release Gate)
+        run: npm run test:smoke
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_SMOKE_REQUIRED: ${{ secrets.FEISHU_SMOKE_REQUIRED }}
+          FEISHU_SMOKE_CHAT_ID: ${{ secrets.FEISHU_SMOKE_CHAT_ID }}
 
       - name: Publish to GitHub Packages
         run: npm publish
         env:
-          # 使用内置的 GITHUB_TOKEN，无需手动创建 secret
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 

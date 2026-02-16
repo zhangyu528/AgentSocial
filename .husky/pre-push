@@ -1,1 +1,1 @@
-npm run pre-push:quality
+npm run checklists:sync
