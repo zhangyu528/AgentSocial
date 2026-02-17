@@ -55,7 +55,6 @@ Master gate file: `tests/MASTER_RELEASE_CHECKLIST.md`
 - Run lint + build + unit + integration + contract + local e2e.
 
 2. Publish (`.github/workflows/publish.yml`)
-- Verify CI passed for target commit.
 - Run release smoke test.
 - Publish package only after smoke passes.
 

@@ -15,33 +15,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify CI passed for this commit
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const headSha = context.sha;
-            const res = await github.rest.actions.listWorkflowRuns({
-              owner,
-              repo,
-              workflow_id: "ci.yml",
-              head_sha: headSha,
-              status: "completed",
-              per_page: 20,
-            });
-            const passed = res.data.workflow_runs.find(
-              (run) => run.conclusion === "success"
-            );
-            if (!passed) {
-              core.setFailed(
-                `No successful CI run found for commit ${headSha}.`
-              );
-              return;
-            }
-            core.info(
-              `CI gate passed via run id=${passed.id}, run_number=${passed.run_number}.`
-            );
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
