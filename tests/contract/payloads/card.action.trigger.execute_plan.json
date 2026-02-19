@@ -1,0 +1,12 @@
+{
+  "action": {
+    "value": {
+      "action_id": "execute_plan",
+      "chat_id": "oc_contract_chat_001",
+      "original_cmd": "fix tests"
+    }
+  },
+  "context": {
+    "open_message_id": "om_contract_card_001"
+  }
+}

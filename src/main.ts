@@ -10,6 +10,11 @@ import { Dashboard } from './ui/dashboard';
 import { FeishuAPI } from './services/feishu-api';
 import * as readline from 'readline';
 import { execSync } from 'child_process';
+import { detectAgent, checkAuth, SUPPORTED_AGENTS, AgentInfo } from './core/setup-utils';
+import { ConfigManager, AppConfig } from './core/config-manager';
+import { validateFeishuCredentials } from './core/setup-validation';
+import { parseCliArgs, getCliUsage, SetupCliOptions } from './core/cli-args';
+import { readProjectVersion } from './core/version';
 
 const rootDir = path.join(__dirname, '..');
 
@@ -18,26 +23,16 @@ const rootDir = path.join(__dirname, '..');
 // ---------------------------------------------------------
 
 async function main() {
-    const configDir = path.join(os.homedir(), '.agentsocial');
-    const settingsPath = path.join(configDir, 'settings.json');
+    const configManager = new ConfigManager();
+    const appConfigs = configManager.getSettings();
 
-    if (!fs.existsSync(settingsPath)) {
-        console.error(chalk.red("❌ No settings.json found."));
+    if (appConfigs.length === 0) {
+        console.error(chalk.red("❌ No configuration found."));
         console.error("👉 Run 'agentsocial setup' to get started.");
         process.exit(1);
     }
 
     const PROJECT_ROOT = process.cwd();
-    let rawConfig: any;
-    try {
-        rawConfig = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    } catch (e: any) {
-        console.error(chalk.red("❌ Failed to parse settings.json:"), e.message);
-        process.exit(1);
-    }
-
-    const appConfigs = Array.isArray(rawConfig) ? rawConfig : (rawConfig.apps || [rawConfig]);
-
     checkDependencies(appConfigs);
 
     // 显示仪表盘
@@ -135,16 +130,75 @@ function checkDependencies(appConfigs: any[]) {
 // CLI ARGUMENT HANDLING
 // ---------------------------------------------------------
 const args = process.argv.slice(2);
+const parsedCli = parseCliArgs(args);
+const cliAction = parsedCli.action;
 
-if (args.includes('--help') || args.includes('-h')) {
-    console.log(`
-Usage: agentsocial [command]
-
-Commands:
-  setup         Configure and verify a new App/Agent
-  run           Start the agent service (default)
-`);
+if (cliAction === 'help') {
+    if (parsedCli.errors.length > 0) {
+        parsedCli.errors.forEach(e => console.error(chalk.red(`❌ ${e}`)));
+        console.log(getCliUsage());
+        process.exit(1);
+    }
+    console.log(getCliUsage());
     process.exit(0);
+}
+
+if (cliAction === 'version') {
+    try {
+        console.log(readProjectVersion(process.cwd(), __dirname));
+        process.exit(0);
+    } catch (error: any) {
+        console.error(chalk.red(`❌ ${error?.message || String(error)}`));
+        process.exit(1);
+    }
+}
+
+if (parsedCli.errors.length > 0) {
+    parsedCli.errors.forEach(e => console.error(chalk.red(`❌ ${e}`)));
+    console.log(getCliUsage());
+    process.exit(1);
+}
+
+function runConfigCommand() {
+    const manager = new ConfigManager();
+    const options = parsedCli.configOptions;
+
+    if (options.mode === "list") {
+        const settings = manager.getSettings();
+        if (settings.length === 0) {
+            console.log(chalk.yellow("No app configs found."));
+            process.exit(0);
+        }
+        settings.forEach((item, index) => {
+            console.log(`[${index + 1}] app_id=${item.app_id} platform=${item.platform} agent=${item.agent_type} project=${item.project_path}`);
+        });
+        process.exit(0);
+    }
+
+    if (options.mode === "remove" && options.targetAppId) {
+        const removed = manager.removeApp(options.targetAppId);
+        if (!removed) {
+            console.error(chalk.red(`❌ app_id not found: ${options.targetAppId}`));
+            process.exit(1);
+        }
+        console.log(chalk.green(`✅ removed app config: ${options.targetAppId}`));
+        process.exit(0);
+    }
+
+    if (options.mode === "update" && options.targetAppId) {
+        const update: { app_secret?: string; agent_type?: string; project_path?: string } = {};
+        if (options.appSecret) update.app_secret = options.appSecret;
+        if (options.agentType) update.agent_type = options.agentType;
+        if (options.projectPath) update.project_path = options.projectPath;
+
+        const updated = manager.updateApp(options.targetAppId, update);
+        if (!updated) {
+            console.error(chalk.red(`❌ app_id not found: ${options.targetAppId}`));
+            process.exit(1);
+        }
+        console.log(chalk.green(`✅ updated app config: ${options.targetAppId}`));
+        process.exit(0);
+    }
 }
 
 async function runConfigWizard(): Promise<any> {
@@ -159,25 +213,20 @@ async function runConfigWizard(): Promise<any> {
     ╚════════════════════════════════════════════════════════════╝
     `));
 
-    const agents = [
-        { id: 'gemini cli', name: 'Google Gemini CLI', check: 'gemini --version', loginCheck: 'gemini --list-sessions', available: false, installCmd: 'npm install -g @google/gemini-cli', desc: 'Advanced reasoning & tool use' },
-        { id: 'claude', name: 'Claude Code', available: false, desc: 'Coming soon...' },
-        { id: 'codex', name: 'Codex CLI', available: false, desc: 'Coming soon...' }
-    ];
+    const agents = [...SUPPORTED_AGENTS];
 
     console.log(chalk.cyan(`\n 🔍 Detecting environment...`));
-    // Only detect Gemini for now as it's the only supported one
-    try {
-        execSync(agents[0].check || '', { stdio: 'ignore' });
-        agents[0].available = true;
-    } catch (e) {
-        agents[0].available = false;
-    }
 
-    if (!agents[0].available) {
+    // Detect availability
+    agents.forEach(agent => {
+        agent.available = detectAgent(agent);
+    });
+
+    const gemini = agents.find(a => a.id === 'gemini cli')!;
+    if (!gemini.available) {
         console.log(chalk.red("\n ❌ Google Gemini CLI not found on your system."));
         console.log(chalk.yellow("\n To use AgentSocial, please install Gemini CLI:"));
-        console.log(chalk.white(`  • ${chalk.bold(agents[0].name)}: ${chalk.cyan(agents[0].installCmd)}`));
+        console.log(chalk.white(`  • ${chalk.bold(gemini.name)}: ${chalk.cyan(gemini.installCmd)}`));
         console.log("");
         process.exit(1);
     }
@@ -217,12 +266,11 @@ async function runConfigWizard(): Promise<any> {
     console.log(chalk.green(`\n ✅ Using ${selectedAgent.name}`));
 
     // Login status check for Gemini
-    if (selectedAgent.id === 'gemini cli' && selectedAgent.loginCheck) {
+    if (selectedAgent.available && selectedAgent.loginCheck) {
         process.stdout.write(chalk.dim(`    • Checking authentication... `));
-        try {
-            execSync(selectedAgent.loginCheck, { stdio: 'ignore' });
+        if (checkAuth(selectedAgent)) {
             console.log(chalk.green("Logged in."));
-        } catch (e) {
+        } else {
             console.log(chalk.red("Not logged in."));
             console.error(chalk.red(`\n❌ Error: ${selectedAgent.name} requires authentication.`));
             console.log(chalk.yellow(`👉 Please run 'gemini' in your terminal to login first.`));
@@ -239,6 +287,13 @@ async function runConfigWizard(): Promise<any> {
 
     const appId = await ask(chalk.white("   🆔 App ID: "));
     const appSecret = await ask(chalk.white("   🔑 App Secret: "));
+    const validation = validateFeishuCredentials(appId, appSecret);
+    if (!validation.valid) {
+        console.error(chalk.red("\n❌ 凭证校验失败："));
+        validation.errors.forEach(err => console.error(chalk.red(`   - ${err}`)));
+        rl.close();
+        process.exit(1);
+    }
     console.log(chalk.gray(" ────────────────────────────────────────────────────────────"));
 
     console.log(chalk.bold.yellow('\n 🚧 Action Required: Configure Feishu Developer Console'));
@@ -308,20 +363,54 @@ async function runConfigWizard(): Promise<any> {
     };
 }
 
-if (args.includes('setup')) {
-    (async () => {
-        const configDir = path.join(os.homedir(), '.agentsocial');
-        if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-        const targetPath = path.join(configDir, 'settings.json');
-        let configArray = fs.existsSync(targetPath) ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : [];
-        const newApp = await runConfigWizard();
-        configArray.push(newApp);
-        fs.writeFileSync(targetPath, JSON.stringify(configArray, null, 2));
+async function runNonInteractiveSetup(options: SetupCliOptions): Promise<AppConfig> {
+    const appId = options.appId?.trim() || '';
+    const appSecret = options.appSecret?.trim() || '';
+    const agentType = options.agentType?.trim() || 'gemini cli';
+    const projectPath = options.projectPath?.trim() || process.cwd();
+    const skipDiagnose = options.skipDiagnose;
 
-        console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to ~/.agentsocial/settings.json'));
-        console.log(chalk.cyan(' 👉 Run "npm run dev" to start your agent.\n'));
-        process.exit(0);
+    const validation = validateFeishuCredentials(appId, appSecret);
+    if (!validation.valid) {
+        throw new Error(`凭证校验失败: ${validation.errors.join(' | ')}`);
+    }
+
+    if (!skipDiagnose) {
+        const api = new FeishuAPI(appId, appSecret);
+        const report = await api.diagnose();
+        const allPassed = report.every(r => r.status);
+        if (!allPassed) {
+            throw new Error('飞书配置诊断未通过（可加 --skip-diagnose 跳过）。');
+        }
+    }
+
+    return {
+        platform: 'feishu',
+        app_id: appId,
+        app_secret: appSecret,
+        agent_type: agentType,
+        project_path: projectPath
+    };
+}
+
+if (cliAction === 'setup') {
+    (async () => {
+        try {
+            const configManager = new ConfigManager();
+            const setupMode = parsedCli.setupOptions.mode;
+            const newApp = setupMode === "apply" ? await runNonInteractiveSetup(parsedCli.setupOptions) : await runConfigWizard();
+            configManager.addApp(newApp);
+
+            console.log(chalk.bold.green('\n 🎉 Configuration Complete! saved to ~/.agentsocial/settings.json'));
+            console.log(chalk.cyan(' 👉 Run "npm run dev" to start your agent.\n'));
+            process.exit(0);
+        } catch (error: any) {
+            console.error(chalk.red(`\n❌ setup failed: ${error?.message || String(error)}`));
+            process.exit(1);
+        }
     })();
-} else {
+} else if (cliAction === 'config') {
+    runConfigCommand();
+} else if (cliAction === 'run') {
     main();
 }
