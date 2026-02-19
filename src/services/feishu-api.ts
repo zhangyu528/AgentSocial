@@ -12,13 +12,13 @@ export class FeishuAPI {
         this.client = new lark.Client({
             appId: appId,
             appSecret: appSecret,
-            disableTokenCache: false,
+            disableTokenCache: true,
             logger: {
-                error: () => {},
-                warn: () => {},
-                info: () => {},
-                debug: () => {},
-                trace: () => {}
+                error: () => { },
+                warn: () => { },
+                info: () => { },
+                debug: () => { },
+                trace: () => { }
             }
         });
     }
@@ -153,7 +153,7 @@ export class FeishuAPI {
             const userIds: string[] = (visibility.users || [])
                 .map((u: any) => u.user_id || u.open_id)
                 .filter((id: string) => !!id);
-            
+
             const deptIds: string[] = visibility.departments || [];
 
             for (const deptId of deptIds) {
@@ -188,15 +188,15 @@ export class FeishuAPI {
      */
     async diagnose(): Promise<{ name: string, status: boolean, error?: string, hint?: string }[]> {
         const report = [];
-        
+
         // 1. Auth & Bot Identity
         try {
             await this.getBotInfo();
-            report.push({ name: '机器人能力 (Bot Capability)', status: true });
+            report.push({ name: '[BOT_CAPABILITY] 机器人能力', status: true });
         } catch (e: any) {
-            report.push({ 
-                name: '机器人能力 (Bot Capability)', 
-                status: false, 
+            report.push({
+                name: '[BOT_CAPABILITY] 机器人能力',
+                status: false,
                 error: e.message,
                 hint: '请确保在飞书后台“应用功能”->“机器人”中已启用机器人，并发布版本。'
             });
@@ -206,12 +206,12 @@ export class FeishuAPI {
         // 2. Scope: Message Read (Try to probe im:message:readonly)
         try {
             await this.getMessages('oc_probe_id', 1);
-            report.push({ name: '权限: 获取单聊、群组消息 (im:message:readonly)', status: true });
+            report.push({ name: '[SCOPE_READ_MESSAGE] 权限: 获取单聊、群组消息', status: true });
         } catch (e: any) {
             const isDenied = e.message.includes('permission') || e.message.includes('403') || e.message.includes('Forbidden');
-            report.push({ 
-                name: '权限: 获取单聊、群组消息 (im:message:readonly)', 
-                status: !isDenied, 
+            report.push({
+                name: '[SCOPE_READ_MESSAGE] 权限: 获取单聊、群组消息',
+                status: !isDenied,
                 hint: isDenied ? '请在“权限管理”开启并在“版本发布”中生效。' : undefined
             });
         }
@@ -219,11 +219,11 @@ export class FeishuAPI {
         // 3. Scope: Chat List (im:chat:readonly)
         try {
             await this.getJoinedChats(1);
-            report.push({ name: '权限: 获取群组信息 (im:chat:readonly)', status: true });
+            report.push({ name: '[SCOPE_READ_CHAT] 权限: 获取群组信息', status: true });
         } catch (e: any) {
-            report.push({ 
-                name: '权限: 获取群组信息 (im:chat:readonly)', 
-                status: false, 
+            report.push({
+                name: '[SCOPE_READ_CHAT] 权限: 获取群组信息',
+                status: false,
                 hint: '请在“权限管理”开启“获取群组信息”并在“版本发布”中生效。'
             });
         }
@@ -231,11 +231,11 @@ export class FeishuAPI {
         // 4. Scope: App Info (Essential for Metadata & Visibility)
         try {
             await this.getApplicationInfo();
-            report.push({ name: '权限: 获取应用信息 (admin:app.info:readonly)', status: true });
+            report.push({ name: '[SCOPE_APP_INFO] 权限: 获取应用信息', status: true });
         } catch (e: any) {
-            report.push({ 
-                name: '权限: 获取应用信息 (admin:app.info:readonly)', 
-                status: false, 
+            report.push({
+                name: '[SCOPE_APP_INFO] 权限: 获取应用信息',
+                status: false,
                 error: e.message,
                 hint: '请在“权限管理”开启“获取应用信息”权限并发布版本，以支持成员控制功能。'
             });

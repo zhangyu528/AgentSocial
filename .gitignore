@@ -4,3 +4,4 @@ node_modules/
 *.err
 .DS_Store
 .env
+tests/coverage/

@@ -20,14 +20,21 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
-    "dev:setup": "ts-node src/main.ts setup",
+    "cli": "ts-node src/main.ts",
+    "dev:setup:init": "ts-node src/main.ts setup init",
     "dev:run": "ts-node src/main.ts run",
-    "start": "node dist/src/main.js",
-    "clean": "rm -rf dist sessions",
+    "start": "node dist/main.js",
     "lint": "tsc --noEmit",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test:unit": "jest tests/unit --maxWorkers=50%",
+    "test:integration": "jest tests/integration --maxWorkers=50%",
+    "test:contract": "jest tests/contract --maxWorkers=50%",
+    "test:e2e": "jest tests/e2e/local --runInBand",
+    "test:smoke": "jest tests/smoke/feishu-real-chain.smoke.test.ts --runInBand",
+    "test:coverage": "jest --config tests/scripts/jest.coverage.config.js",
+    "checklists:sync": "node tests/scripts/update-checklists.js",
+    "prepare": "husky"
   },
   "keywords": [
     "feishu",
@@ -44,9 +51,20 @@
     "cli-table3": "^0.6.5"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.2.0",
+    "husky": "^9.1.7",
+    "jest": "^30.2.0",
+    "lint-staged": "^16.2.7",
+    "nock": "^14.0.11",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
   }
 }
+
+
+
+
+

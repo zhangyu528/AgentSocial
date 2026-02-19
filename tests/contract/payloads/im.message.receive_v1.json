@@ -1,0 +1,22 @@
+{
+  "message": {
+    "message_id": "om_contract_msg_001",
+    "message_type": "text",
+    "chat_id": "oc_contract_chat_001",
+    "chat_type": "group",
+    "mentions": [
+      {
+        "id": {
+          "open_id": "ou_bot_001"
+        },
+        "key": "@_user_1"
+      }
+    ],
+    "content": "{\"text\":\"@_user_1  帮我检查这个项目\"}"
+  },
+  "sender": {
+    "sender_id": {
+      "open_id": "ou_user_001"
+    }
+  }
+}
