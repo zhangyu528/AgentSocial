@@ -26,14 +26,14 @@ jobs:
           test -n "${FEISHU_APP_ID}" || (echo "Missing secret: FEISHU_APP_ID" && exit 1)
           test -n "${FEISHU_APP_SECRET}" || (echo "Missing secret: FEISHU_APP_SECRET" && exit 1)
         env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_ID: ${{ vars.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
 
       - name: Run Real Smoke E2E
         run: npm run test:smoke
         env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_ID: ${{ vars.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_SMOKE_REQUIRED: ${{ secrets.FEISHU_SMOKE_REQUIRED }}
-          FEISHU_SMOKE_CHAT_ID: ${{ secrets.FEISHU_SMOKE_CHAT_ID }}
+          FEISHU_SMOKE_REQUIRED: ${{ vars.FEISHU_SMOKE_REQUIRED }}
+          FEISHU_SMOKE_CHAT_ID: ${{ vars.FEISHU_SMOKE_CHAT_ID }}
 
