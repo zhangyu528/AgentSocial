@@ -5,6 +5,7 @@
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+![Status](https://github.com/zhangyu528/AgentSocial/actions/workflows/smoke-real-chain.yml/badge.svg)
 
 AgentSocial 是一个轻量级但功能强大的中间件，旨在让你通过熟悉的社交软件（如飞书、钉钉）远程、安全地管理本地项目。它不仅仅是一个简单的转发器，更是一个带有“安全审核机制”的 Agent 托管环境。
 
